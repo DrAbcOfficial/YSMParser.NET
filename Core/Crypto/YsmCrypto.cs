@@ -1,6 +1,4 @@
-using System.Security.Cryptography;
-
-namespace YSMParser.Core;
+namespace YSMParser.Core.Crypto;
 
 public static class YsmCrypto
 {
@@ -41,14 +39,16 @@ public static class YsmCrypto
     {
         Span<byte> keyIv = stackalloc byte[56];
         key.CopyTo(keyIv);
-        iv.CopyTo(keyIv.Slice(32));
+        iv.CopyTo(keyIv[32..]);
 
         ulong hash2 = CityHash64.CityHash64WithSeed(keyIv, 56, seed);
         uint nextRoundSize = (uint)(((hash2 & 0x3FUL) | 0x40UL) << 6);
         int blockPointer = 0;
 
-        XChaChaCtx ctx = new();
-        ctx.Rounds = 10 * (uint)(hash2 % 3) + 10;
+        XChaChaCtx ctx = new()
+        {
+            Rounds = 10 * (uint)(hash2 % 3) + 10
+        };
         XChaCha20.KeySetup(ctx, key, iv);
 
         byte[] result = new byte[data.Length];
@@ -82,7 +82,7 @@ public static class YsmCrypto
     {
         Span<byte> keyIv = stackalloc byte[56];
         key.CopyTo(keyIv);
-        iv.CopyTo(keyIv.Slice(32));
+        iv.CopyTo(keyIv[32..]);
 
         ulong seed = CityHash64.CityHash64WithSeed(keyIv, 56, SEED_KEY_DERIVATION);
         var mt = new Mt19937(seed);

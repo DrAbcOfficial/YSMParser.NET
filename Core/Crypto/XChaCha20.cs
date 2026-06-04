@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Crypto;
 
 /// <summary>
 /// XChaCha20 stream cipher implementation. Direct port of the C library
@@ -29,7 +29,7 @@ public static class XChaCha20
     public static void HChaCha20(Span<byte> output, ReadOnlySpan<byte> input, ReadOnlySpan<byte> key, uint rounds)
     {
         uint x0 = 0x61707865, x1 = 0x3320646e, x2 = 0x79622d32, x3 = 0x6b206574;
-        uint x4 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(0, 4));
+        uint x4 = BinaryPrimitives.ReadUInt32LittleEndian(key[..4]);
         uint x5 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(4, 4));
         uint x6 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(8, 4));
         uint x7 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(12, 4));
@@ -37,7 +37,7 @@ public static class XChaCha20
         uint x9 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(20, 4));
         uint x10 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(24, 4));
         uint x11 = BinaryPrimitives.ReadUInt32LittleEndian(key.Slice(28, 4));
-        uint x12 = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(0, 4));
+        uint x12 = BinaryPrimitives.ReadUInt32LittleEndian(input[..4]);
         uint x13 = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(4, 4));
         uint x14 = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(8, 4));
         uint x15 = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(12, 4));
@@ -54,7 +54,7 @@ public static class XChaCha20
             QuarterRound(ref x3, ref x4, ref x9, ref x14);
         }
 
-        BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(0, 4), x0);
+        BinaryPrimitives.WriteUInt32LittleEndian(output[..4], x0);
         BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(4, 4), x1);
         BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(8, 4), x2);
         BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(12, 4), x3);
@@ -67,13 +67,13 @@ public static class XChaCha20
     public static void KeySetup(XChaChaCtx ctx, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
     {
         Span<byte> k2 = stackalloc byte[32];
-        HChaCha20(k2, iv.Slice(0, 16), key, ctx.Rounds);
+        HChaCha20(k2, iv[..16], key, ctx.Rounds);
 
         ctx.Input[0] = 0x61707865;
         ctx.Input[1] = 0x3320646e;
         ctx.Input[2] = 0x79622d32;
         ctx.Input[3] = 0x6b206574;
-        ctx.Input[4] = BinaryPrimitives.ReadUInt32LittleEndian(k2.Slice(0, 4));
+        ctx.Input[4] = BinaryPrimitives.ReadUInt32LittleEndian(k2[..4]);
         ctx.Input[5] = BinaryPrimitives.ReadUInt32LittleEndian(k2.Slice(4, 4));
         ctx.Input[6] = BinaryPrimitives.ReadUInt32LittleEndian(k2.Slice(8, 4));
         ctx.Input[7] = BinaryPrimitives.ReadUInt32LittleEndian(k2.Slice(12, 4));
@@ -117,7 +117,7 @@ public static class XChaCha20
         x8 += ctx.Input[8]; x9 += ctx.Input[9]; x10 += ctx.Input[10]; x11 += ctx.Input[11];
         x12 += j12Init; x13 += j13Init; x14 += ctx.Input[14]; x15 += ctx.Input[15];
 
-        x0 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(0, 4));
+        x0 ^= BinaryPrimitives.ReadUInt32LittleEndian(m[..4]);
         x1 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(4, 4));
         x2 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(8, 4));
         x3 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(12, 4));
@@ -134,7 +134,7 @@ public static class XChaCha20
         x14 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(56, 4));
         x15 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(60, 4));
 
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(0, 4), x0);
+        BinaryPrimitives.WriteUInt32LittleEndian(c[..4], x0);
         BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(4, 4), x1);
         BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(8, 4), x2);
         BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(12, 4), x3);
@@ -179,7 +179,7 @@ public static class XChaCha20
                     scratch[(int)i] = input[inputOffset + (int)i];
                 }
                 EncryptBlock(ctx, scratch, scratch, j12, j13);
-                scratch.Slice(0, (int)remaining).CopyTo(output.Slice(outputOffset));
+                scratch[..(int)remaining].CopyTo(output[outputOffset..]);
                 ctx.Input[12] = j12;
                 ctx.Input[13] = j13;
                 return;

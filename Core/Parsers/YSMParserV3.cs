@@ -1,49 +1,46 @@
-using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Buffers.Binary;
+using YSMParser.Core.Crypto;
+using YSMParser.Core.Utilities;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Parsers;
 
-public sealed class YSMParserV3 : YSMParser
+public sealed class YSMParserV3(byte[] buffer) : YSMParser
 {
-    private readonly byte[] _buffer;
+    private readonly byte[] _buffer = buffer;
     private string _header = string.Empty;
     private readonly byte[] _key = new byte[32];
     private readonly byte[] _iv = new byte[24];
     private ulong _fileHash;
-    private byte[] _binaryData = Array.Empty<byte>();
-    private byte[] _decrypted = Array.Empty<byte>();
-    private byte[] _decompressed = Array.Empty<byte>();
+    private byte[] _binaryData = [];
+    private byte[] _decrypted = [];
+    private byte[] _decompressed = [];
 
     private int _format;
-    private readonly Dictionary<string, string> _subEntityCategories = new();
+    private readonly Dictionary<string, string> _subEntityCategories = [];
 
-    private readonly List<(string Name, byte[] Data)> _soundFiles = new();
-    private readonly List<(string Name, byte[] Data)> _functionFiles = new();
-    private readonly List<(string Name, byte[] Data)> _languageFiles = new();
-    private readonly List<(string Name, byte[] Data)> _animControllerFiles = new();
-    private readonly List<(string Name, byte[] Data)> _textureFiles = new();
-    private readonly List<(string Name, byte[] Data)> _avatarFiles = new();
-    private readonly List<(string Name, byte[] Data)> _modelFiles = new();
-    private readonly List<(string Name, byte[] Data)> _animationFiles = new();
-    private readonly List<(string Name, byte[] Data)> _specialImageFiles = new();
-    private readonly List<(string Name, byte[] Data)> _backgroundFiles = new();
-    private byte[] _infoJsonFile = Array.Empty<byte>();
-    private byte[] _ysmJsonFile = Array.Empty<byte>();
-
-    public YSMParserV3(byte[] buffer)
-    {
-        _buffer = buffer;
-    }
+    private readonly List<(string Name, byte[] Data)> _soundFiles = [];
+    private readonly List<(string Name, byte[] Data)> _functionFiles = [];
+    private readonly List<(string Name, byte[] Data)> _languageFiles = [];
+    private readonly List<(string Name, byte[] Data)> _animControllerFiles = [];
+    private readonly List<(string Name, byte[] Data)> _textureFiles = [];
+    private readonly List<(string Name, byte[] Data)> _avatarFiles = [];
+    private readonly List<(string Name, byte[] Data)> _modelFiles = [];
+    private readonly List<(string Name, byte[] Data)> _animationFiles = [];
+    private readonly List<(string Name, byte[] Data)> _specialImageFiles = [];
+    private readonly List<(string Name, byte[] Data)> _backgroundFiles = [];
+    private byte[] _infoJsonFile = [];
+    private byte[] _ysmJsonFile = [];
 
     public override int GetYSGPVersion() => 3;
     public override byte[] GetDecryptedData() => _decompressed;
 
     public override void Parse()
     {
-        _binaryData = Array.Empty<byte>();
+        _binaryData = [];
 
         // Find the null-terminated boundary in raw bytes.
         int nulIdx = -1;
@@ -89,7 +86,7 @@ public sealed class YSMParserV3 : YSMParser
         byte[] chachaDecrypted = YsmCrypto.ModifiedChaChaDecrypt(_binaryData, _key, _iv, YsmCrypto.SEED_RES_VERIFICATION);
         byte[] xorredData = YsmCrypto.MT19937XorDecrypt(chachaDecrypted, _key, _iv);
 
-        ushort n = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(xorredData);
+        ushort n = BinaryPrimitives.ReadUInt16LittleEndian(xorredData);
         n &= 0x3FF;
         _decrypted = new byte[xorredData.Length - 2 - n];
         Array.Copy(xorredData, 2 + n, _decrypted, 0, _decrypted.Length);
@@ -120,7 +117,7 @@ public sealed class YSMParserV3 : YSMParser
             end++;
         }
         if (end == pos) throw new ParserInvalidFileFormatException();
-        return int.Parse(headerData.Substring(pos, end - pos), CultureInfo.InvariantCulture);
+        return int.Parse(headerData.AsSpan(pos, end - pos), CultureInfo.InvariantCulture);
     }
 
     // ============== JSON helpers ==============
@@ -280,10 +277,10 @@ public sealed class YSMParserV3 : YSMParser
             var sb = new StringBuilder("[");
             for (int i = 0; i < 3; i++)
             {
-                if (i > 0) sb.Append(",");
+                if (i > 0) sb.Append(',');
                 sb.Append(M[i].ToJson());
             }
-            sb.Append("]");
+            sb.Append(']');
             return sb.ToString();
         }
     }
@@ -297,17 +294,17 @@ public sealed class YSMParserV3 : YSMParser
 
     private sealed class BonesKeyFrame
     {
-        public List<(float Time, Keyframe Bone)> Frames = new();
+        public List<(float Time, Keyframe Bone)> Frames = [];
     }
 
     private sealed class Effects
     {
-        public List<(float Time, string Name)> Events = new();
+        public List<(float Time, string Name)> Events = [];
     }
 
     private sealed class TimeLine
     {
-        public List<(float Time, List<string> Events)> Groups = new();
+        public List<(float Time, List<string> Events)> Groups = [];
     }
 
     private static MolangValue ReadMolangValue(BufferReader reader)
@@ -398,7 +395,7 @@ public sealed class YSMParserV3 : YSMParser
         for (int i = 0; i < channel.Frames.Count; i++)
         {
             var (time, kf) = channel.Frames[i];
-            if (i > 0) sb.Append(",");
+            if (i > 0) sb.Append(',');
             sb.Append('"').Append(FormatTime(time)).Append("\":");
 
             if (kf.Pre == null && kf.LerpMode == LerpMode.Linear)
@@ -408,7 +405,7 @@ public sealed class YSMParserV3 : YSMParser
             else
             {
                 sb.Append('{');
-                bool first = true;
+                bool first;
                 if (kf.Pre != null)
                 {
                     sb.Append("\"post\":").Append(kf.Post.ToJson()).Append(",\"pre\":").Append(kf.Pre.ToJson());
@@ -421,12 +418,12 @@ public sealed class YSMParserV3 : YSMParser
                 }
                 if (kf.LerpMode == LerpMode.Step)
                 {
-                    if (!first) sb.Append(",");
+                    if (!first) sb.Append(',');
                     sb.Append("\"lerp_mode\":\"step\"");
                 }
                 else if (kf.LerpMode == LerpMode.Catmullrom)
                 {
-                    if (!first) sb.Append(",");
+                    if (!first) sb.Append(',');
                     sb.Append("\"lerp_mode\":\"catmullrom\"");
                 }
                 sb.Append('}');
@@ -443,7 +440,7 @@ public sealed class YSMParserV3 : YSMParser
         public string Identifier = string.Empty;
         public float TextureWidth, TextureHeight;
         public float VisibleBoundsWidth, VisibleBoundsHeight;
-        public List<float> VisibleBoundsOffset = new();
+        public List<float> VisibleBoundsOffset = [];
     }
 
     private sealed class ParsedBone
@@ -452,14 +449,14 @@ public sealed class YSMParserV3 : YSMParser
         public string Name = string.Empty;
         public Vector3D Pivot;
         public Vector3D Rotation;
-        public List<List<Face>> Cubes = new();
+        public List<List<Face>> Cubes = [];
     }
 
     private sealed class ParsedModel
     {
         public string Sha256 = string.Empty;
         public ParsedDescription Description = new();
-        public List<ParsedBone> Bones = new();
+        public List<ParsedBone> Bones = [];
     }
 
     public struct Face
@@ -493,11 +490,14 @@ public sealed class YSMParserV3 : YSMParser
                 uint uvSize = (uint)reader.ReadVarint();
                 for (uint k = 0; k < uvSize; k++)
                 {
-                    var face = new Face { Normal = reader.ReadVector3D() };
-                    face.V0 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() };
-                    face.V1 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() };
-                    face.V2 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() };
-                    face.V3 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() };
+                    var face = new Face
+                    {
+                        Normal = reader.ReadVector3D(),
+                        V0 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() },
+                        V1 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() },
+                        V2 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() },
+                        V3 = new Vertex { Vec = reader.ReadVector3D(), U = reader.ReadFloat(), V = reader.ReadFloat() }
+                    };
                     faces.Add(face);
                 }
                 bone.Cubes.Add(faces);
@@ -569,7 +569,7 @@ public sealed class YSMParserV3 : YSMParser
             sb.Append("\"pivot\":[")
                 .Append(FormatNumber(-bone.Pivot.X)).Append(',')
                 .Append(FormatNumber(bone.Pivot.Y)).Append(',')
-                .Append(FormatNumber(bone.Pivot.Z)).Append("]");
+                .Append(FormatNumber(bone.Pivot.Z)).Append(']');
 
             if (!string.IsNullOrEmpty(bone.Parent))
             {
@@ -651,7 +651,7 @@ public sealed class YSMParserV3 : YSMParser
 
         public BlockbenchCube()
         {
-            Uv = new Dictionary<string, UVBox>();
+            Uv = [];
         }
     }
 
@@ -810,7 +810,7 @@ public sealed class YSMParserV3 : YSMParser
             Size = bbSize,
             Pivot = bbPivot,
             Rotation = Vector3D.Zero,
-            Uv = new Dictionary<string, UVBox>()
+            Uv = []
         };
         return result;
     }
@@ -1205,10 +1205,10 @@ public sealed class YSMParserV3 : YSMParser
             var texObj = new JsonObject { ["uv"] = "textures/" + SanitizeWindowsFilename(name + ".png") };
             string expectedNormal = name + "_normal";
             string expectedSpecular = name + "_specular";
-            foreach (var sp in _specialImageFiles)
+            foreach (var (Name, Data) in _specialImageFiles)
             {
-                if (sp.Name == expectedNormal) texObj["normal"] = "textures/" + SanitizeWindowsFilename(expectedNormal + ".png");
-                else if (sp.Name == expectedSpecular) texObj["specular"] = "textures/" + SanitizeWindowsFilename(expectedSpecular + ".png");
+                if (Name == expectedNormal) texObj["normal"] = "textures/" + SanitizeWindowsFilename(expectedNormal + ".png");
+                else if (Name == expectedSpecular) texObj["specular"] = "textures/" + SanitizeWindowsFilename(expectedSpecular + ".png");
             }
             playerTex.Add(texObj);
         }
@@ -1246,7 +1246,7 @@ public sealed class YSMParserV3 : YSMParser
             }
             if (!catModels.TryGetValue(cat, out var list))
             {
-                list = new List<string>();
+                list = [];
                 catModels[cat] = list;
             }
             list.Add(mn);
@@ -1263,10 +1263,10 @@ public sealed class YSMParserV3 : YSMParser
                     if (an.Contains('/'))
                     {
                         int sp = an.IndexOf('/');
-                        if (an.Substring(sp + 1) == mn)
+                        if (an[(sp + 1)..] == mn)
                         {
-                            string catPrefix = an.Substring(0, sp + 1);
-                            string baseName = an.Substring(sp + 1);
+                            string catPrefix = an[..(sp + 1)];
+                            string baseName = an[(sp + 1)..];
                             entry["animation"] = "animations/" + catPrefix + SanitizeWindowsFilename(baseName + ".animation.json");
                             break;
                         }
@@ -1282,10 +1282,10 @@ public sealed class YSMParserV3 : YSMParser
                     if (an.Contains('/'))
                     {
                         int sp = an.IndexOf('/');
-                        if (an.Substring(sp + 1) == mn)
+                        if (an[(sp + 1)..] == mn)
                         {
-                            string catPrefix = an.Substring(0, sp + 1);
-                            string baseName = an.Substring(sp + 1);
+                            string catPrefix = an[..(sp + 1)];
+                            string baseName = an[(sp + 1)..];
                             entry["controller"] = "controller/" + catPrefix + SanitizeWindowsFilename(baseName + ".json");
                             break;
                         }
@@ -1391,8 +1391,10 @@ public sealed class YSMParserV3 : YSMParser
                     var arr = new JsonArray();
                     for (uint j = 0; j < transSize; j++)
                     {
-                        var item = new JsonObject();
-                        item[reader.ReadString()] = reader.ReadString();
+                        var item = new JsonObject
+                        {
+                            [reader.ReadString()] = reader.ReadString()
+                        };
                         arr.Add(item);
                     }
                     stateObj["transitions"] = arr;
@@ -1741,10 +1743,10 @@ public sealed class YSMParserV3 : YSMParser
             string subModuleName = string.Empty;
             if (_format <= 26) subModuleName = reader.ReadString();
             bool hasSubAnim = reader.ReadVarint() != 0;
-            byte[] anim = hasSubAnim ? ParseAnimations(reader) : Array.Empty<byte>();
+            byte[] anim = hasSubAnim ? ParseAnimations(reader) : [];
 
             bool hasSubController = reader.ReadVarint() != 0;
-            byte[] subController = Array.Empty<byte>();
+            byte[] subController = [];
             if (hasSubController)
             {
                 _ = reader.ReadString();
@@ -1780,7 +1782,7 @@ public sealed class YSMParserV3 : YSMParser
                 for (uint j = 0; j < subModels; j++)
                 {
                     subModuleName = reader.ReadString();
-                    if (subModuleName.Contains(':')) subModuleName = subModuleName.Substring(subModuleName.IndexOf(':') + 1);
+                    if (subModuleName.Contains(':')) subModuleName = subModuleName[(subModuleName.IndexOf(':') + 1)..];
                     _subEntityCategories[subModuleName] = categoryName;
                     _modelFiles.Add((subModuleName, model));
                     foreach (var (n, d) in subTextures) _textureFiles.Add((subModuleName + "_" + n, d));
@@ -1790,7 +1792,7 @@ public sealed class YSMParserV3 : YSMParser
                 }
                 return;
             }
-            if (subModuleName.Contains(':')) subModuleName = subModuleName.Substring(subModuleName.IndexOf(':') + 1);
+            if (subModuleName.Contains(':')) subModuleName = subModuleName[(subModuleName.IndexOf(':') + 1)..];
             _subEntityCategories[subModuleName] = categoryName;
             _modelFiles.Add((subModuleName, model));
             foreach (var (n, d) in subTextures) _textureFiles.Add((subModuleName + "_" + n, d));
@@ -1869,7 +1871,7 @@ public sealed class YSMParserV3 : YSMParser
         ParseYSMJson(reader);
     }
 
-    private byte[] ParseSpecialImage(BufferReader reader)
+    private static byte[] ParseSpecialImage(BufferReader reader)
     {
         _ = reader.ReadString();
         return reader.ReadByteSequence();

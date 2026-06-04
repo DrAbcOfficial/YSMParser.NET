@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Crypto;
 
 /// <summary>
 /// CityHash64 implementation with the YSM-modified constants.
@@ -54,7 +54,7 @@ public static class CityHash64
         {
             ulong mul = k2 + (ulong)len * 2;
             ulong a = Fetch64(s) + k2;
-            ulong b = Fetch64(s.Slice(len - 8));
+            ulong b = Fetch64(s[(len - 8)..]);
             ulong c = Rotate(b, 37) * mul + a;
             ulong d = (Rotate(a, 25) + b) * mul;
             return HashLen16(c, d, mul);
@@ -63,7 +63,7 @@ public static class CityHash64
         {
             ulong mul = k2 + (ulong)len * 2;
             ulong a = Fetch32(s);
-            return HashLen16((ulong)len + (a << 3), Fetch32(s.Slice(len - 4)), mul);
+            return HashLen16((ulong)len + (a << 3), Fetch32(s[(len - 4)..]), mul);
         }
         if (len > 0)
         {
@@ -81,17 +81,17 @@ public static class CityHash64
     {
         ulong mul = k2 + (ulong)len * 2;
         ulong a = Fetch64(s) * k1;
-        ulong b = Fetch64(s.Slice(8));
-        ulong c = Fetch64(s.Slice(len - 8)) * mul;
-        ulong d = Fetch64(s.Slice(len - 16)) * k2;
+        ulong b = Fetch64(s[8..]);
+        ulong c = Fetch64(s[(len - 8)..]) * mul;
+        ulong d = Fetch64(s[(len - 16)..]) * k2;
         return HashLen16(Rotate(a + b, 43) + Rotate(c, 30) + d,
                          a + Rotate(b + k2, 18) + c, mul);
     }
 
     private static (ulong First, ulong Second) WeakHashLen32WithSeeds(ReadOnlySpan<byte> s, ulong a, ulong b)
     {
-        return WeakHashLen32WithSeeds(Fetch64(s), Fetch64(s.Slice(8)),
-                                       Fetch64(s.Slice(16)), Fetch64(s.Slice(24)), a, b);
+        return WeakHashLen32WithSeeds(Fetch64(s), Fetch64(s[8..]),
+                                       Fetch64(s[16..]), Fetch64(s[24..]), a, b);
     }
 
     private static (ulong First, ulong Second) WeakHashLen32WithSeeds(ulong w, ulong x, ulong y, ulong z, ulong a, ulong b)
@@ -109,13 +109,13 @@ public static class CityHash64
     {
         ulong mul = k2 + (ulong)len * 2;
         ulong a = Fetch64(s) * k2;
-        ulong b = Fetch64(s.Slice(8));
-        ulong c = Fetch64(s.Slice(len - 24));
-        ulong d = Fetch64(s.Slice(len - 32));
-        ulong e = Fetch64(s.Slice(16)) * k2;
-        ulong f = Fetch64(s.Slice(24)) * 9;
-        ulong g = Fetch64(s.Slice(len - 8));
-        ulong h = Fetch64(s.Slice(len - 16)) * mul;
+        ulong b = Fetch64(s[8..]);
+        ulong c = Fetch64(s[(len - 24)..]);
+        ulong d = Fetch64(s[(len - 32)..]);
+        ulong e = Fetch64(s[16..]) * k2;
+        ulong f = Fetch64(s[24..]) * 9;
+        ulong g = Fetch64(s[(len - 8)..]);
+        ulong h = Fetch64(s[(len - 16)..]) * mul;
         ulong u = Rotate(a + g, 43) + (Rotate(b, 30) + c) * 9;
         ulong v = ((a + g) ^ d) + f + 1;
         ulong w = BSwap64((u + v) * mul) + h;
@@ -142,25 +142,25 @@ public static class CityHash64
             return HashLen33to64(s, len);
         }
 
-        ulong xx = Fetch64(s.Slice(len - 40));
-        ulong y = Fetch64(s.Slice(len - 16)) + Fetch64(s.Slice(len - 56));
-        ulong z = HashLen16(Fetch64(s.Slice(len - 48)) + (ulong)len, Fetch64(s.Slice(len - 24)));
-        var v = WeakHashLen32WithSeeds(s.Slice(len - 64), (ulong)len, z);
-        var w = WeakHashLen32WithSeeds(s.Slice(len - 32), y + k1, xx);
+        ulong xx = Fetch64(s[(len - 40)..]);
+        ulong y = Fetch64(s[(len - 16)..]) + Fetch64(s[(len - 56)..]);
+        ulong z = HashLen16(Fetch64(s[(len - 48)..]) + (ulong)len, Fetch64(s[(len - 24)..]));
+        var v = WeakHashLen32WithSeeds(s[(len - 64)..], (ulong)len, z);
+        var w = WeakHashLen32WithSeeds(s[(len - 32)..], y + k1, xx);
         xx = xx * k1 + Fetch64(s);
 
         int rem = (len - 1) & ~63;
         do
         {
-            xx = Rotate(xx + y + v.First + Fetch64(s.Slice(8)), 37) * k1;
-            y = Rotate(y + v.Second + Fetch64(s.Slice(48)), 42) * k1;
+            xx = Rotate(xx + y + v.First + Fetch64(s[8..]), 37) * k1;
+            y = Rotate(y + v.Second + Fetch64(s[48..]), 42) * k1;
             xx ^= w.Second;
-            y += v.First + Fetch64(s.Slice(40));
+            y += v.First + Fetch64(s[40..]);
             z = Rotate(z + w.First, 33) * k1;
             v = WeakHashLen32WithSeeds(s, v.Second * k1, xx + w.First);
-            w = WeakHashLen32WithSeeds(s.Slice(32), z + w.Second, y + Fetch64(s.Slice(16)));
+            w = WeakHashLen32WithSeeds(s[32..], z + w.Second, y + Fetch64(s[16..]));
             (z, xx) = (xx, z);
-            s = s.Slice(64);
+            s = s[64..];
             rem -= 64;
         } while (rem != 0);
         return HashLen16(HashLen16(v.First, w.First) + ShiftMix(y) * k1 + z,

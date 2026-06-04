@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using YSMParser.Core;
+using YSMParser.Core.Parsers;
 
 namespace YSMParser.CLI;
 

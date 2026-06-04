@@ -17,7 +17,8 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
-    <Using Include="YSMParser.Core" />
+    <Using Include="YSMParser.Core.Crypto" />
+    <Using Include="YSMParser.Core.Utilities" />
   </ItemGroup>
 
   <ItemGroup>

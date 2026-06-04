@@ -1,4 +1,4 @@
-namespace YSMParser.Core;
+namespace YSMParser.Core.Parsers;
 
 using System.Buffers.Binary;
 
@@ -118,7 +118,8 @@ public sealed class BufferReader
         {
             throw new ParserIndexOutOfBoundException();
         }
-        if (len == 0) return Array.Empty<byte>();
+        if (len == 0)
+            return [];
         byte[] s = new byte[len];
         Array.Copy(_data, Offset, s, 0, (int)len);
         Offset += (int)len;
@@ -131,7 +132,8 @@ public sealed class BufferReader
         {
             throw new ParserIndexOutOfBoundException();
         }
-        if (len == 0) return Array.Empty<byte>();
+        if (len == 0)
+            return [];
         byte[] s = new byte[len];
         Array.Copy(_data, Offset, s, 0, len);
         Offset += len;

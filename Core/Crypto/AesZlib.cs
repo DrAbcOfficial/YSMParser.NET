@@ -1,7 +1,8 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Security.Cryptography;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Crypto;
 
 public static class AesUtil
 {
@@ -24,7 +25,7 @@ public static class ZlibUtil
     {
         var compressed = compressedData.ToArray();
         using var input = new MemoryStream(compressed);
-        using var deflate = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress, leaveOpen: true);
+        using var deflate = new DeflateStream(input, CompressionMode.Decompress, leaveOpen: true);
         using var output = new MemoryStream();
         deflate.CopyTo(output);
         return output.ToArray();
@@ -42,6 +43,6 @@ public static class Md5Util
 
     public static ulong HashToLong(byte[] hash)
     {
-        return System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(hash.AsSpan(8));
+        return BinaryPrimitives.ReadUInt64BigEndian(hash.AsSpan(8));
     }
 }

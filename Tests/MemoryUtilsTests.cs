@@ -1,3 +1,5 @@
+using YSMParser.Core.Utilities;
+
 namespace YSMParser.Tests;
 
 public sealed class MemoryUtilsTests

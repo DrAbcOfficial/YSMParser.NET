@@ -1,4 +1,6 @@
-namespace YSMParser.Core;
+using System.Buffers.Binary;
+
+namespace YSMParser.Core.Crypto;
 
 /// <summary>
 /// Reverts the YSM "obfuscation" applied to a standard ZSTD frame so the
@@ -43,7 +45,7 @@ public static class YsmZstd
 
         var data = compressedData.ToArray();
 
-        uint magic = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(data);
+        uint magic = BinaryPrimitives.ReadUInt32LittleEndian(data);
         if (magic != 0xFD2FB528)
         {
             throw new ArgumentException("Not a standard ZSTD Magic Number. May be skippable frame or unknown.");
@@ -66,17 +68,14 @@ public static class YsmZstd
             uint blockTypeYSM = (b0 >> 5) & 3;
             uint rawSize = ((b0 & 0x1F) << 16) | b1 | (b2 << 8);
             uint cSize = rawSize ^ 0xD4E9;
-
-            uint blockTypeStd;
-            switch (blockTypeYSM)
+            var blockTypeStd = blockTypeYSM switch
             {
-                case 0: blockTypeStd = STD_BT_COMPRESSED; break;
-                case 1: blockTypeStd = STD_BT_RLE; break;
-                case 2: blockTypeStd = STD_BT_RESERVED; break;
-                case 3: blockTypeStd = STD_BT_RAW; break;
-                default: throw new InvalidOperationException("Unknown block type");
-            }
-
+                0 => STD_BT_COMPRESSED,
+                1 => STD_BT_RLE,
+                2 => STD_BT_RESERVED,
+                3 => STD_BT_RAW,
+                _ => throw new InvalidOperationException("Unknown block type"),
+            };
             uint stdHeader = lastBlock | (blockTypeStd << 1) | (cSize << 3);
             data[offset] = (byte)(stdHeader & 0xFF);
             data[offset + 1] = (byte)((stdHeader >> 8) & 0xFF);

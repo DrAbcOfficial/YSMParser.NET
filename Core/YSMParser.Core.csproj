@@ -9,6 +9,9 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="YSMParser.Tests" />
+    <Using Include="YSMParser.Core.Crypto" />
+    <Using Include="YSMParser.Core.Parsers" />
+    <Using Include="YSMParser.Core.Utilities" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />

@@ -4,10 +4,7 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Folder Name="/Core/" />
-  <Folder Name="/Tests/">
-    <Project Path="Tests/YSMParser.Tests.csproj" />
-  </Folder>
   <Project Path="CLI/YSMParser.CLI.csproj" />
   <Project Path="Core/YSMParser.Core.csproj" />
+  <Project Path="Tests/YSMParser.Tests.csproj" />
 </Solution>

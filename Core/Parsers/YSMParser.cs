@@ -1,4 +1,4 @@
-namespace YSMParser.Core;
+namespace YSMParser.Core.Parsers;
 
 public abstract class YSMParser
 {

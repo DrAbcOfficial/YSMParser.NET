@@ -1,4 +1,4 @@
-namespace YSMParser.Core;
+namespace YSMParser.Core.Crypto;
 
 /// <summary>
 /// 64-bit Mersenne Twister implementation that mirrors the seeded

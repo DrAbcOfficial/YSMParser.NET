@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Utilities;
 
 public static class MemoryUtils
 {

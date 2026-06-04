@@ -1,4 +1,4 @@
-using YSMParser.Core;
+using YSMParser.Core.Crypto;
 
 namespace YSMParser.Tests;
 

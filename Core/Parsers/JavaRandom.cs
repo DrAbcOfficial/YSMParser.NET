@@ -1,21 +1,16 @@
-namespace YSMParser.Core;
+namespace YSMParser.Core.Parsers;
 
 /// <summary>
 /// Java's <c>java.util.Random</c> reproduced for YSM V2 PRNG derivation.
 /// The mask is the standard 48-bit LCG: <c>seed = (seed * 0x5DEECE66D + 0xB) &amp; ((1 &lt;&lt; 48) - 1)</c>.
 /// </summary>
-internal sealed class JavaRandom
+internal sealed class JavaRandom(ulong initialSeed)
 {
     private const ulong Multiplier = 0x5DEECE66DUL;
     private const ulong Addend = 0xBUL;
     private const ulong Mask = (1UL << 48) - 1;
 
-    private ulong _seed;
-
-    public JavaRandom(ulong initialSeed)
-    {
-        _seed = (initialSeed ^ Multiplier) & Mask;
-    }
+    private ulong _seed = (initialSeed ^ Multiplier) & Mask;
 
     public int Next(int bits)
     {

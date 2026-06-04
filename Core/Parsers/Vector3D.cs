@@ -1,13 +1,8 @@
-namespace YSMParser.Core;
+namespace YSMParser.Core.Parsers;
 
-public struct Vector3D
+public struct Vector3D(float x, float y, float z)
 {
-    public float X, Y, Z;
-
-    public Vector3D(float x, float y, float z)
-    {
-        X = x; Y = y; Z = z;
-    }
+    public float X = x, Y = y, Z = z;
 
     public static Vector3D operator -(Vector3D a, Vector3D b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
     public static Vector3D operator +(Vector3D a, Vector3D b) => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z);

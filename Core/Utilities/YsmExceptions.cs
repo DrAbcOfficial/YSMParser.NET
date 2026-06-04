@@ -1,4 +1,4 @@
-namespace YSMParser.Core;
+namespace YSMParser.Core.Utilities;
 
 public class ParserUnSupportVersionException : Exception
 {

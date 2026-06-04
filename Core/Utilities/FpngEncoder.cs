@@ -2,7 +2,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Utilities;
 
 /// <summary>
 /// RGBA-to-PNG encoder used to repack raw texture data. The C++ tool uses
@@ -15,7 +15,7 @@ public static class FpngEncoder
     {
         if (rgba.Length != width * height * 4)
         {
-            return Array.Empty<byte>();
+            return [];
         }
 
         using var image = Image.LoadPixelData<Rgba32>(rgba, width, height);

@@ -1,13 +1,13 @@
-using YSMParser.Core;
+using YSMParser.Core.Crypto;
 
 namespace YSMParser.Tests;
 
-public sealed class CityHashTests
+public sealed class CityHash64Tests
 {
     [Fact]
     public void Empty_ReturnsK2()
     {
-        ulong h = CityHash.CityHash64([], 0);
+        ulong h = CityHash64.Compute([], 0);
         Assert.Equal(0xAF29CE778879D9C7ul, h);
     }
 
@@ -15,7 +15,7 @@ public sealed class CityHashTests
     public void SingleChar_A()
     {
         byte[] data = "a"u8.ToArray();
-        ulong h = CityHash.CityHash64(data, data.Length);
+        ulong h = CityHash64.Compute(data, data.Length);
         Assert.Equal(0x9B523756FC604CD5ul, h);
     }
 
@@ -23,7 +23,7 @@ public sealed class CityHashTests
     public void ThreeChars_Abc()
     {
         byte[] data = "abc"u8.ToArray();
-        ulong h = CityHash.CityHash64(data, data.Length);
+        ulong h = CityHash64.Compute(data, data.Length);
         Assert.Equal(0xF207656CA5D4DC83ul, h);
     }
 
@@ -31,7 +31,7 @@ public sealed class CityHashTests
     public void ElevenChars_HelloWorld()
     {
         byte[] data = "hello world"u8.ToArray();
-        ulong h = CityHash.CityHash64(data, data.Length);
+        ulong h = CityHash64.Compute(data, data.Length);
         Assert.Equal(0xC099D1F62205DF38ul, h);
     }
 
@@ -39,7 +39,7 @@ public sealed class CityHashTests
     public void Fox_Length43()
     {
         byte[] data = "The quick brown fox jumps over the lazy dog"u8.ToArray();
-        ulong h = CityHash.CityHash64(data, data.Length);
+        ulong h = CityHash64.Compute(data, data.Length);
         Assert.Equal(0x1C37F2033D092FF7ul, h);
     }
 
@@ -47,8 +47,8 @@ public sealed class CityHashTests
     public void WithSeed_Deterministic()
     {
         byte[] data = "test data"u8.ToArray();
-        ulong h1 = CityHash.CityHash64WithSeed(data, data.Length, 0xCAFEBABEul);
-        ulong h2 = CityHash.CityHash64WithSeed(data, data.Length, 0xCAFEBABEul);
+        ulong h1 = CityHash64.CityHash64WithSeed(data, data.Length, 0xCAFEBABEul);
+        ulong h2 = CityHash64.CityHash64WithSeed(data, data.Length, 0xCAFEBABEul);
         Assert.Equal(h1, h2);
     }
 }

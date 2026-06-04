@@ -1,22 +1,19 @@
 using System.Text;
+using YSMParser.Core.Crypto;
+using YSMParser.Core.Utilities;
 
-namespace YSMParser.Core;
+namespace YSMParser.Core.Parsers;
 
-public sealed class YSMParserV2 : YSMParser
+public sealed class YSMParserV2(byte[] buffer) : YSMParser
 {
-    private readonly byte[] _buffer;
-    private byte[]? _decryptedData;
+    private readonly byte[] _buffer = buffer;
+    private readonly byte[]? _decryptedData;
     private readonly byte[] _key = new byte[16];
-    private readonly Dictionary<string, byte[]> _resources = new();
-
-    public YSMParserV2(byte[] buffer)
-    {
-        _buffer = buffer;
-    }
+    private readonly Dictionary<string, byte[]> _resources = [];
 
     public override int GetYSGPVersion() => 2;
 
-    public override byte[] GetDecryptedData() => _decryptedData ?? Array.Empty<byte>();
+    public override byte[] GetDecryptedData() => _decryptedData ?? [];
 
     public override void Parse()
     {
