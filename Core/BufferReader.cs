@@ -1,5 +1,7 @@
 namespace YSMParser.Core;
 
+using System.Buffers.Binary;
+
 /// <summary>
 /// Sequential byte buffer reader, mirroring the C++ <c>BufferReader</c>.
 /// </summary>
@@ -47,7 +49,7 @@ public sealed class BufferReader
         {
             throw new ParserIndexOutOfBoundException();
         }
-        ushort result = (ushort)(_data[Offset] | (_data[Offset + 1] << 8));
+        ushort result = BinaryPrimitives.ReadUInt16LittleEndian(_data.AsSpan(Offset));
         Offset += 2;
         return result;
     }
@@ -80,7 +82,7 @@ public sealed class BufferReader
         {
             throw new ParserIndexOutOfBoundException();
         }
-        float value = BitConverter.ToSingle(_data, Offset);
+        float value = BinaryPrimitives.ReadSingleLittleEndian(_data.AsSpan(Offset));
         Offset += 4;
         return value;
     }
@@ -91,7 +93,7 @@ public sealed class BufferReader
         {
             throw new ParserIndexOutOfBoundException();
         }
-        uint value = (uint)(_data[Offset] | (_data[Offset + 1] << 8) | (_data[Offset + 2] << 16) | (_data[Offset + 3] << 24));
+        uint value = BinaryPrimitives.ReadUInt32LittleEndian(_data.AsSpan(Offset));
         Offset += 4;
         return value;
     }

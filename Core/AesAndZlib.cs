@@ -42,11 +42,6 @@ public static class Md5Util
 
     public static ulong HashToLong(byte[] hash)
     {
-        ulong result = 0;
-        for (int i = 8; i < 16; ++i)
-        {
-            result = (result << 8) | hash[i];
-        }
-        return result;
+        return System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(hash.AsSpan(8));
     }
 }

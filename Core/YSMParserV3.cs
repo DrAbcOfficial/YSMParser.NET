@@ -89,7 +89,7 @@ public sealed class YSMParserV3 : YSMParser
         byte[] chachaDecrypted = CryptoUtils.ModifiedChaChaDecrypt(_binaryData, _key, _iv, CryptoUtils.SEED_RES_VERIFICATION);
         byte[] xorredData = CryptoUtils.MT19937XorDecrypt(chachaDecrypted, _key, _iv);
 
-        ushort n = (ushort)(xorredData[0] | (xorredData[1] << 8));
+        ushort n = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(xorredData);
         n &= 0x3FF;
         _decrypted = new byte[xorredData.Length - 2 - n];
         Array.Copy(xorredData, 2 + n, _decrypted, 0, _decrypted.Length);
@@ -189,11 +189,11 @@ public sealed class YSMParserV3 : YSMParser
 
     private static string SanitizeWindowsFilename(string filename, char replacement = '_')
     {
-        const string invalid = "\\/:*?\"<>|";
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
         var sb = new StringBuilder(filename.Length);
         foreach (char c in filename)
         {
-            sb.Append(invalid.IndexOf(c) >= 0 ? replacement : c);
+            sb.Append(invalid.Contains(c) ? replacement : c);
         }
         while (sb.Length > 0 && (sb[^1] == ' ' || sb[^1] == '.'))
         {

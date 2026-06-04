@@ -43,10 +43,7 @@ public static class YsmZstd
 
         var data = compressedData.ToArray();
 
-        uint magic = (uint)data[0]
-            | ((uint)data[1] << 8)
-            | ((uint)data[2] << 16)
-            | ((uint)data[3] << 24);
+        uint magic = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(data);
         if (magic != 0xFD2FB528)
         {
             throw new ArgumentException("Not a standard ZSTD Magic Number. May be skippable frame or unknown.");

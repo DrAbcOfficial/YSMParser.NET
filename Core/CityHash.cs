@@ -21,7 +21,7 @@ public static class CityHash
     private static uint Fetch32(ReadOnlySpan<byte> s) => MemoryMarshal.Read<uint>(s);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong Rotate(ulong val, int shift) => shift == 0 ? val : (val >> shift) | (val << (64 - shift));
+    private static ulong Rotate(ulong val, int shift) => shift == 0 ? val : System.Numerics.BitOperations.RotateRight(val, shift);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ulong ShiftMix(ulong val) => val ^ (val >> 47);
