@@ -23,8 +23,26 @@ public static class ZlibUtil
 {
     public static byte[] Decompress(ReadOnlySpan<byte> compressedData)
     {
-        var compressed = compressedData.ToArray();
-        using var input = new MemoryStream(compressed);
+        if (compressedData.Length < 2)
+            throw new InvalidDataException("Data too short for decompression.");
+
+        // Check for zlib header (RFC 1950): CMF byte low nibble must be 8 (deflate)
+        bool hasZlibHeader = (compressedData[0] & 0x0F) == 8;
+
+        ReadOnlySpan<byte> rawDeflate;
+        if (hasZlibHeader)
+        {
+            int headerSize = 2;
+            if ((compressedData[1] & 0x20) != 0)
+                headerSize += 4; // FDICT set, skip DICTID
+            rawDeflate = compressedData.Slice(headerSize, compressedData.Length - headerSize - 4);
+        }
+        else
+        {
+            rawDeflate = compressedData;
+        }
+
+        using var input = new MemoryStream(rawDeflate.ToArray());
         using var deflate = new DeflateStream(input, CompressionMode.Decompress, leaveOpen: true);
         using var output = new MemoryStream();
         deflate.CopyTo(output);

@@ -56,7 +56,7 @@ public sealed class YSMParserV2(byte[] buffer) : YSMParser
             jRandom.NextBytes(randomKey);
 
             byte[] realKey = AesUtil.DecryptCbc(encryptedKey, randomKey, iv);
-            byte[] decrypted = AesUtil.DecryptCbc(encryptedData, realKey, iv);
+            byte[] decrypted = AesUtil.DecryptCbc(encryptedData, realKey.AsSpan(0, 16), iv);
             byte[] decompressed = ZlibUtil.Decompress(decrypted);
 
             _resources[fileName] = decompressed;
