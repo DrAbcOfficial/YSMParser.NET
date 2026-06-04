@@ -7,7 +7,7 @@ namespace YSMParser.Core;
 /// CityHash64 implementation with the YSM-modified constants.
 /// Ported from the reference C++ implementation in <c>external/cityhash</c>.
 /// </summary>
-public static class CityHash
+public static class CityHash64
 {
     // YSM-Modified constants.
     private const ulong k0 = 0xE4986A230E5AAA17UL;
@@ -127,7 +127,7 @@ public static class CityHash
         return b + x;
     }
 
-    public static ulong CityHash64(ReadOnlySpan<byte> s, int len)
+    public static ulong Compute(ReadOnlySpan<byte> s, int len)
     {
         if (len <= 32)
         {
@@ -171,5 +171,5 @@ public static class CityHash
         CityHash64WithSeeds(s, len, k2, seed);
 
     public static ulong CityHash64WithSeeds(ReadOnlySpan<byte> s, int len, ulong seed0, ulong seed1) =>
-        HashLen16(CityHash64(s, len) - seed0, seed1);
+        HashLen16(Compute(s, len) - seed0, seed1);
 }

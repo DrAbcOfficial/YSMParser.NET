@@ -78,7 +78,7 @@ public sealed class YSMParserV3 : YSMParser
         uint crypto = MemoryUtils.ReadLE<uint>(_buffer.AsSpan(binaryStart));
         if (crypto != 3) throw new ParserInvalidFileFormatException();
 
-        ulong fileHash = CityHash.CityHash64WithSeed(_buffer, _buffer.Length - 8, CryptoUtils.SEED_FILE_VERIFICATION);
+        ulong fileHash = CityHash64.CityHash64WithSeed(_buffer, _buffer.Length - 8, YsmCrypto.SEED_FILE_VERIFICATION);
         if (fileHash != _fileHash) throw new ParserCorruptedDataException();
 
         int binaryDataStart = binaryStart + 4;
@@ -86,15 +86,15 @@ public sealed class YSMParserV3 : YSMParser
         _binaryData = new byte[binaryDataLength];
         Array.Copy(_buffer, binaryDataStart, _binaryData, 0, binaryDataLength);
 
-        byte[] chachaDecrypted = CryptoUtils.ModifiedChaChaDecrypt(_binaryData, _key, _iv, CryptoUtils.SEED_RES_VERIFICATION);
-        byte[] xorredData = CryptoUtils.MT19937XorDecrypt(chachaDecrypted, _key, _iv);
+        byte[] chachaDecrypted = YsmCrypto.ModifiedChaChaDecrypt(_binaryData, _key, _iv, YsmCrypto.SEED_RES_VERIFICATION);
+        byte[] xorredData = YsmCrypto.MT19937XorDecrypt(chachaDecrypted, _key, _iv);
 
         ushort n = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(xorredData);
         n &= 0x3FF;
         _decrypted = new byte[xorredData.Length - 2 - n];
         Array.Copy(xorredData, 2 + n, _decrypted, 0, _decrypted.Length);
 
-        _decompressed = CryptoUtils.DecompressZstd(_decrypted);
+        _decompressed = YsmCrypto.DecompressZstd(_decrypted);
 
         if (Verbose)
         {
@@ -1570,7 +1570,7 @@ public sealed class YSMParserV3 : YSMParser
             var data = reader.ReadByteSequence();
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
-            byte[] png = Fpng.EncodeRgbaToPng(data, (int)width, (int)height);
+            byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
             if (png.Length == 0) throw new ParserUnknownFieldException();
             _textureFiles.Add((textureName, png));
         }
@@ -1669,7 +1669,7 @@ public sealed class YSMParserV3 : YSMParser
             var data = reader.ReadByteSequence();
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
-            byte[] png = Fpng.EncodeRgbaToPng(data, (int)width, (int)height);
+            byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
             if (png.Length == 0) throw new ParserUnknownFieldException();
             _textureFiles.Add((textureName, png));
 
@@ -1680,7 +1680,7 @@ public sealed class YSMParserV3 : YSMParser
                 var subData = reader.ReadByteSequence();
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
-                byte[] subPng = Fpng.EncodeRgbaToPng(subData, (int)width, (int)height);
+                byte[] subPng = FpngEncoder.EncodeRgbaToPng(subData, (int)width, (int)height);
                 if (subPng.Length == 0) throw new ParserUnknownFieldException();
                 string suffix = specular == 1 ? "_normal" : specular == 2 ? "_specular" : "_special";
                 _specialImageFiles.Add((textureName + suffix, subPng));
@@ -1701,7 +1701,7 @@ public sealed class YSMParserV3 : YSMParser
             var data = reader.ReadByteSequence();
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
-            byte[] png = Fpng.EncodeRgbaToPng(data, (int)width, (int)height);
+            byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
             if (png.Length == 0) throw new ParserUnknownFieldException();
             _avatarFiles.Add((textureName, png));
         }

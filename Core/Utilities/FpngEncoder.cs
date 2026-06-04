@@ -9,7 +9,7 @@ namespace YSMParser.Core;
 /// <c>fpng</c>; here we use SixLabors.ImageSharp. The output bytes will
 /// differ from fpng, but the decoded image is identical.
 /// </summary>
-public static class Fpng
+public static class FpngEncoder
 {
     public static byte[] EncodeRgbaToPng(ReadOnlySpan<byte> rgba, int width, int height)
     {

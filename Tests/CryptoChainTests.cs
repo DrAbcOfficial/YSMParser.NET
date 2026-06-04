@@ -20,9 +20,9 @@ public sealed class CryptoChainTests
     [Fact]
     public void SEED_Constants_AreAsExpected()
     {
-        Assert.Equal(0xD017CBBA7B5D3581ul, CryptoUtils.SEED_KEY_DERIVATION);
-        Assert.Equal(0xA62B1A2C43842BC3ul, CryptoUtils.SEED_RES_VERIFICATION);
-        Assert.Equal(0x9E5599DB80C67C29ul, CryptoUtils.SEED_FILE_VERIFICATION);
+        Assert.Equal(0xD017CBBA7B5D3581ul, YsmCrypto.SEED_KEY_DERIVATION);
+        Assert.Equal(0xA62B1A2C43842BC3ul, YsmCrypto.SEED_RES_VERIFICATION);
+        Assert.Equal(0x9E5599DB80C67C29ul, YsmCrypto.SEED_FILE_VERIFICATION);
     }
 
     [Fact]
@@ -36,8 +36,8 @@ public sealed class CryptoChainTests
         byte[] data = new byte[256];
         Random.Shared.NextBytes(data);
 
-        byte[] encrypted = CryptoUtils.MT19937XorDecrypt(data, key, iv);
-        byte[] decrypted = CryptoUtils.MT19937XorDecrypt(encrypted, key, iv);
+        byte[] encrypted = YsmCrypto.MT19937XorDecrypt(data, key, iv);
+        byte[] decrypted = YsmCrypto.MT19937XorDecrypt(encrypted, key, iv);
 
         Assert.Equal(data, decrypted);
     }
@@ -50,8 +50,8 @@ public sealed class CryptoChainTests
         byte[] data = new byte[512];
         Random.Shared.NextBytes(data);
 
-        byte[] r1 = CryptoUtils.ModifiedChaChaDecrypt(data, key, iv, 0xCAFEBABEul);
-        byte[] r2 = CryptoUtils.ModifiedChaChaDecrypt(data, key, iv, 0xCAFEBABEul);
+        byte[] r1 = YsmCrypto.ModifiedChaChaDecrypt(data, key, iv, 0xCAFEBABEul);
+        byte[] r2 = YsmCrypto.ModifiedChaChaDecrypt(data, key, iv, 0xCAFEBABEul);
 
         Assert.Equal(r1, r2);
     }
