@@ -1877,6 +1877,78 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         return reader.ReadByteSequence();
     }
 
+    public override void PrintInfo(TextWriter output)
+    {
+        output.WriteLine($"  Version:      3");
+        output.WriteLine($"  File size:    {_buffer.Length:N0} bytes");
+
+        // Parse header on the fly if not yet done
+        if (_header.Length == 0)
+        {
+            int nulIdx = -1;
+            for (int i = 0; i < _buffer.Length; i++)
+                if (_buffer[i] == 0) { nulIdx = i; break; }
+            if (nulIdx < 0) { output.WriteLine("  (no header found)"); return; }
+            _header = Encoding.UTF8.GetString(_buffer, 0, nulIdx);
+        }
+
+        var header = _header;
+        output.WriteLine();
+        output.WriteLine("  Header metadata:");
+
+        foreach (var line in header.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.AsSpan().Trim();
+            if (trimmed.Length == 0) continue;
+            if (trimmed[0] != '<') continue;
+
+            if (trimmed.StartsWith("<name>"))
+                PrintTag(output, "Name", trimmed, "<name>");
+            else if (trimmed.StartsWith("<authors>"))
+                PrintTag(output, "Authors", trimmed, "<authors>");
+            else if (trimmed.StartsWith("<license>"))
+                PrintTag(output, "License", trimmed, "<license>");
+            else if (trimmed.StartsWith("<free>"))
+                PrintTag(output, "Free", trimmed, "<free>");
+            else if (trimmed.StartsWith("<format>"))
+                PrintTag(output, "Format version", trimmed, "<format>");
+            else if (trimmed.StartsWith("<crypto>"))
+                PrintTag(output, "Crypto version", trimmed, "<crypto>");
+            else if (trimmed.StartsWith("<hash>"))
+                PrintTag(output, "Hash", trimmed, "<hash>");
+            else if (trimmed.StartsWith("<main-model>"))
+                PrintTag(output, "Main model hash", trimmed, "<main-model>");
+            else if (trimmed.StartsWith("<arm-model>"))
+                PrintTag(output, "Arm model hash", trimmed, "<arm-model>");
+            else if (trimmed.StartsWith("<arrow-model>"))
+                PrintTag(output, "Arrow model hash", trimmed, "<arrow-model>");
+            else if (trimmed.StartsWith("<main-animation>"))
+                PrintTag(output, "Main animation hash", trimmed, "<main-animation>");
+            else if (trimmed.StartsWith("<arm-animation>"))
+                PrintTag(output, "Arm animation hash", trimmed, "<arm-animation>");
+            else if (trimmed.StartsWith("<extra-animation>"))
+                PrintTag(output, "Extra animation hash", trimmed, "<extra-animation>");
+            else if (trimmed.StartsWith("<tac-animation>"))
+                PrintTag(output, "TAC animation hash", trimmed, "<tac-animation>");
+            else if (trimmed.StartsWith("<arrow-animation>"))
+                PrintTag(output, "Arrow animation hash", trimmed, "<arrow-animation>");
+            else if (trimmed.StartsWith("<texture"))
+                PrintTag(output, "Texture", trimmed, ">");
+            else if (trimmed.StartsWith("<animation-controller>"))
+                PrintTag(output, "Animation controller", trimmed, "<animation-controller>");
+            else if (trimmed.StartsWith("<player-model>") || trimmed.StartsWith("<projectile-model>") || trimmed.StartsWith("<vehicle-model>"))
+                output.WriteLine($"    {trimmed}");
+        }
+    }
+
+    private static void PrintTag(TextWriter output, string label, ReadOnlySpan<char> line, string tag)
+    {
+        var idx = line.IndexOf(tag.AsSpan(), StringComparison.Ordinal);
+        if (idx < 0) return;
+        var value = line.Slice(idx + tag.Length).Trim();
+        output.WriteLine($"    {label}: {value}");
+    }
+
     public override void SaveToDirectory(string outputDirectory)
     {
         Directory.CreateDirectory(outputDirectory);

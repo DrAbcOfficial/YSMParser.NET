@@ -22,6 +22,7 @@ internal static class Program
 
         string? inputDir = GetOption(args, "-i", "--input");
         string? outputDir = GetOption(args, "-o", "--output");
+        bool infoOnly = HasFlag(args, "-n", "--info");
         bool verbose = HasFlag(args, "-v", "--verbose");
         bool debug = HasFlag(args, "-d", "--debug");
         bool formatJson = HasFlag(args, "-f", "--format");
@@ -32,9 +33,15 @@ internal static class Program
             threads = t;
         }
 
-        if (string.IsNullOrEmpty(inputDir) || string.IsNullOrEmpty(outputDir))
+        if (string.IsNullOrEmpty(inputDir))
         {
-            Console.Error.WriteLine("[ YSMParser ] Both --input and --output are required.");
+            Console.Error.WriteLine("[ YSMParser ] --input is required.");
+            PrintUsage();
+            return 1;
+        }
+        if (!infoOnly && string.IsNullOrEmpty(outputDir))
+        {
+            Console.Error.WriteLine("[ YSMParser ] --output is required when not using --info.");
             PrintUsage();
             return 1;
         }
@@ -45,12 +52,12 @@ internal static class Program
             {
                 throw new DirectoryNotFoundException($"Input directory does not exist: {inputDir}");
             }
-            if (!Directory.Exists(outputDir))
+            if (!infoOnly && !Directory.Exists(outputDir))
             {
                 Directory.CreateDirectory(outputDir);
             }
 
-            var tasks = CollectFileTasks(inputDir, outputDir);
+            var tasks = CollectFileTasks(inputDir, outputDir ?? string.Empty, infoOnly);
             if (tasks.Count == 0)
             {
                 Console.WriteLine($"[ YSMParser ] No .ysm files found in {inputDir}");
@@ -76,23 +83,30 @@ internal static class Program
                 string error = string.Empty;
                 try
                 {
-                    Directory.CreateDirectory(task.OutputDir);
                     var parser = YSMParserFactory.Create(task.InputPath);
                     parser.Verbose = verbose;
                     parser.Debug = debug;
                     parser.FormatJson = formatJson;
                     int version = parser.GetYSGPVersion();
-                    if (verbose)
+
+                    if (infoOnly)
                     {
-                        Console.WriteLine($"[ YSMParser ] Detected version: {version}");
+                        var fi = new FileInfo(task.InputPath);
+                        Console.WriteLine($"[ {task.FileName} ]  ({fi.Length:N0} bytes, V{version})");
+                        parser.PrintInfo(Console.Out);
+                        ok = true;
                     }
-                    parser.Parse();
-                    if (verbose)
+                    else
                     {
-                        Console.WriteLine("[ YSMParser ] Exporting resources...");
+                        Directory.CreateDirectory(task.OutputDir);
+                        if (verbose)
+                            Console.WriteLine($"[ YSMParser ] Detected version: {version}");
+                        parser.Parse();
+                        if (verbose)
+                            Console.WriteLine("[ YSMParser ] Exporting resources...");
+                        parser.SaveToDirectory(task.OutputDir);
+                        ok = true;
                     }
-                    parser.SaveToDirectory(task.OutputDir);
-                    ok = true;
                 }
                 catch (Exception ex)
                 {
@@ -126,13 +140,13 @@ internal static class Program
         }
     }
 
-    private static List<FileTask> CollectFileTasks(string inputDir, string outputDir)
+    private static List<FileTask> CollectFileTasks(string inputDir, string outputDir, bool infoOnly)
     {
         var tasks = new List<FileTask>();
         foreach (var path in Directory.EnumerateFiles(inputDir, "*.ysm", SearchOption.AllDirectories))
         {
             string relative = Path.GetRelativePath(inputDir, path);
-            string outputSubdir = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path));
+            string outputSubdir = infoOnly ? string.Empty : Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path));
             tasks.Add(new FileTask(path, Path.GetFileName(path), outputSubdir, relative));
         }
         tasks.Sort((a, b) => string.Compare(a.InputPath, b.InputPath, StringComparison.Ordinal));
@@ -174,10 +188,12 @@ internal static class Program
         Console.WriteLine("YSMParser CLI - parses .ysm model files");
         Console.WriteLine();
         Console.WriteLine("Usage: YSMParser -i <input> -o <output> [options]");
+        Console.WriteLine("       YSMParser -i <input> -n [--info]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  -i, --input <dir>     Input directory (required).");
-        Console.WriteLine("  -o, --output <dir>    Output directory (required).");
+        Console.WriteLine("  -o, --output <dir>    Output directory.");
+        Console.WriteLine("  -n, --info            Print model details without extracting.");
         Console.WriteLine("  -v, --verbose         Verbose logging.");
         Console.WriteLine("  -d, --debug           Export all binary products (V3 only).");
         Console.WriteLine("  -f, --format          Pretty-print JSON output.");

@@ -78,6 +78,34 @@ public sealed class YSMParserV2(byte[] buffer) : YSMParser
         }
     }
 
+    public override void PrintInfo(TextWriter output)
+    {
+        output.WriteLine($"  Version:      2 (AES-CBC + JavaRandom + zlib)");
+        output.WriteLine($"  File size:    {_buffer.Length:N0} bytes");
+
+        int offset = 8 + 16; // skip header + key
+        output.WriteLine();
+        output.WriteLine("  Resources:");
+
+        int index = 0;
+        while (offset + 4 < _buffer.Length)
+        {
+            uint strSize = MemoryUtils.ReadBE<uint>(_buffer.AsSpan(offset));
+            offset += 4;
+            string b64 = Encoding.UTF8.GetString(_buffer, offset, (int)strSize);
+            string fileName = Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+            offset += (int)strSize;
+
+            uint dataLen = MemoryUtils.ReadBE<uint>(_buffer.AsSpan(offset));
+            offset += 4;
+
+            uint encKeyLen = MemoryUtils.ReadBE<uint>(_buffer.AsSpan(offset));
+            offset += 4 + (int)encKeyLen + 16 + (int)dataLen; // skip encKey + iv + encryptedData
+
+            output.WriteLine($"    [{++index}] {fileName}  ({dataLen:N0} bytes encrypted)");
+        }
+    }
+
     private static string Base64Decode(string input)
     {
         var bytes = Convert.FromBase64String(input);

@@ -10,4 +10,5 @@ public abstract class YSMParser
     public abstract void Parse();
     public abstract byte[] GetDecryptedData();
     public abstract void SaveToDirectory(string outputDirectory);
+    public abstract void PrintInfo(TextWriter output);
 }
