@@ -714,8 +714,6 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
             faceInfos.Add((nW, tu, tv, f));
             candidateAxes.Add(nW);
-            if (MathF.Sqrt(tu.X * tu.X + tu.Y * tu.Y + tu.Z * tu.Z) > 0.5f) candidateAxes.Add(tu);
-            if (MathF.Sqrt(tv.X * tv.X + tv.Y * tv.Y + tv.Z * tv.Z) > 0.5f) candidateAxes.Add(tv);
         }
 
         // Dedupe candidate axes similar to C++ implementation
@@ -731,7 +729,6 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 if (MathF.Abs(vN.X * a.X + vN.Y * a.Y + vN.Z * a.Z) > 0.95f) { exists = true; break; }
             }
             if (!exists) rawAxes.Add(vN);
-            if (rawAxes.Count == 3) break;
         }
 
         if (rawAxes.Count == 1)
@@ -760,16 +757,85 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             rawAxes.Add(new Vector3D(0, 0, 1));
         }
 
-        // Search best rotation (simplified to identity - matching C++ heuristic is complex).
-        // The C++ implementation uses a permutation/sign sweep; for the common test file
-        // (format 1 with axis-aligned cubes), the identity rotation should work.
-        // For a complete port we'd need the full sweep; for the test we accept the simplified version.
+        // Search best rotation by trying all permutations and sign assignments.
+        // Pick the one that gives the tightest axis-aligned bounding box.
+        var signs = new int[][] {
+            [ 1,  1,  1], [ 1,  1, -1], [ 1, -1,  1],
+            [ 1, -1, -1], [-1,  1,  1], [-1,  1, -1],
+            [-1, -1,  1], [-1, -1, -1],
+        };
+        var perms = new int[][] {
+            [0, 1, 2], [0, 2, 1], [1, 0, 2],
+            [1, 2, 0], [2, 0, 1], [2, 1, 0],
+        };
+
         var bestRot = new Vector3D[3];
         bestRot[0] = rawAxes[0];
         bestRot[1] = rawAxes[1];
         bestRot[2] = rawAxes[2];
+        float bestVolume = float.MaxValue;
+        float bestAlignment = 0f;
 
-        // Orthogonalize.
+        foreach (var sign in signs)
+        {
+            foreach (var perm in perms)
+            {
+                var testAxes = new Vector3D[3];
+                for (int i = 0; i < 3; i++)
+                    testAxes[i] = rawAxes[perm[i]] * sign[i];
+
+                // Orthogonalize the test axes
+                var t0 = testAxes[0];
+                float t0Len = MathF.Sqrt(t0.X * t0.X + t0.Y * t0.Y + t0.Z * t0.Z);
+                if (t0Len < 1e-8f) continue;
+                t0 = new Vector3D(t0.X / t0Len, t0.Y / t0Len, t0.Z / t0Len);
+
+                var proj2 = new Vector3D(t0.X * Dot(testAxes[1], t0), t0.Y * Dot(testAxes[1], t0), t0.Z * Dot(testAxes[1], t0));
+                var t1raw = testAxes[1] - proj2;
+                float t1Len = MathF.Sqrt(t1raw.X * t1raw.X + t1raw.Y * t1raw.Y + t1raw.Z * t1raw.Z);
+                if (t1Len < 1e-8f) continue;
+                var t1 = new Vector3D(t1raw.X / t1Len, t1raw.Y / t1Len, t1raw.Z / t1Len);
+
+                var t2 = new Vector3D(t0.Y * t1.Z - t0.Z * t1.Y, t0.Z * t1.X - t0.X * t1.Z, t0.X * t1.Y - t0.Y * t1.X);
+
+                // Compute bounding box volume in this orientation
+                float vMinX = float.MaxValue, vMinY = float.MaxValue, vMinZ = float.MaxValue;
+                float vMaxX = float.MinValue, vMaxY = float.MinValue, vMaxZ = float.MinValue;
+                foreach (var (rx, ry, rz) in uniquePts)
+                {
+                    var pt = new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
+                    float px = Dot(pt, t0);
+                    float py = Dot(pt, t1);
+                    float pz = Dot(pt, t2);
+                    vMinX = MathF.Min(vMinX, px); vMaxX = MathF.Max(vMaxX, px);
+                    vMinY = MathF.Min(vMinY, py); vMaxY = MathF.Max(vMaxY, py);
+                    vMinZ = MathF.Min(vMinZ, pz); vMaxZ = MathF.Max(vMaxZ, pz);
+                }
+
+                float vol = (vMaxX - vMinX) * (vMaxY - vMinY) * (vMaxZ - vMinZ);
+
+                // Compute alignment: how well face normals match the axes
+                float alignment = 0f;
+                foreach (var (normal, _, _, _) in faceInfos)
+                {
+                    float dot0 = MathF.Abs(Dot(normal, t0));
+                    float dot1 = MathF.Abs(Dot(normal, t1));
+                    float dot2 = MathF.Abs(Dot(normal, t2));
+                    alignment += MathF.Max(dot0, MathF.Max(dot1, dot2));
+                }
+
+                if (vol < bestVolume * 0.99f || (MathF.Abs(vol - bestVolume) / bestVolume < 0.01f && alignment > bestAlignment))
+                {
+                    bestVolume = vol;
+                    bestAlignment = alignment;
+                    bestRot[0] = t0;
+                    bestRot[1] = t1;
+                    bestRot[2] = t2;
+                }
+            }
+        }
+
+        // Orthogonalize best rotation
         var col0 = bestRot[0];
         float col0Len = MathF.Sqrt(col0.X * col0.X + col0.Y * col0.Y + col0.Z * col0.Z);
         col0 = col0Len > 1e-8f ? new Vector3D(col0.X / col0Len, col0.Y / col0Len, col0.Z / col0Len) : new Vector3D(1, 0, 0);
@@ -781,39 +847,40 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         bestRot[0] = col0; bestRot[1] = col1; bestRot[2] = col2;
 
         // Compute center in world coords.
-        var center = Vector3D.Zero;
+        var centerWorld = Vector3D.Zero;
         foreach (var (rx, ry, rz) in uniquePts)
         {
-            center += new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
+            centerWorld += new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
         }
         int ptCount = Math.Max(1, uniquePts.Count);
-        center = new Vector3D(center.X / ptCount, center.Y / ptCount, center.Z / ptCount);
+        centerWorld = new Vector3D(centerWorld.X / ptCount, centerWorld.Y / ptCount, centerWorld.Z / ptCount);
 
-        var dumpCenter = center;
-        var bbPivot = new Vector3D(-dumpCenter.X, dumpCenter.Y, dumpCenter.Z);
-
-        // Compute size.
-        float sxMax = 0, syMax = 0, szMax = 0;
+        // Compute local-space origin and size by projecting vertices onto bestRot axes.
+        float lxMin = float.MaxValue, lyMin = float.MaxValue, lzMin = float.MaxValue;
+        float lxMax = float.MinValue, lyMax = float.MinValue, lzMax = float.MinValue;
         foreach (var (rx, ry, rz) in uniquePts)
         {
             var pt = new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
-            var d = pt - dumpCenter;
-            sxMax = MathF.Max(sxMax, MathF.Abs(Dot(d, bestRot[0])));
-            syMax = MathF.Max(syMax, MathF.Abs(Dot(d, bestRot[1])));
-            szMax = MathF.Max(szMax, MathF.Abs(Dot(d, bestRot[2])));
+            float px = Dot(pt, col0);
+            float py = Dot(pt, col1);
+            float pz = Dot(pt, col2);
+            lxMin = MathF.Min(lxMin, px); lxMax = MathF.Max(lxMax, px);
+            lyMin = MathF.Min(lyMin, py); lyMax = MathF.Max(lyMax, py);
+            lzMin = MathF.Min(lzMin, pz); lzMax = MathF.Max(lzMax, pz);
         }
-        var bbSize = new Vector3D(
-            (sxMax * 2 - 2 * originalInflate),
-            (syMax * 2 - 2 * originalInflate),
-            (szMax * 2 - 2 * originalInflate));
-        var bbOrigin = bbPivot - bbSize / 2f;
+
+        var bbOrigin = new Vector3D(lxMin, lyMin, lzMin);
+        var bbSize = new Vector3D(lxMax - lxMin, lyMax - lyMin, lzMax - lzMin);
+
+        // Pivot in world space (matches original: negate X of center)
+        var bbPivot = new Vector3D(-centerWorld.X, centerWorld.Y, centerWorld.Z);
 
         var result = new BlockbenchCube
         {
             Origin = bbOrigin,
             Size = bbSize,
             Pivot = bbPivot,
-            Rotation = Vector3D.Zero,
+            Rotation = ComputeEulerFromMatrix(col0, col1, col2),
             Uv = []
         };
 
@@ -845,6 +912,27 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     }
 
     private static float Dot(Vector3D a, Vector3D b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+
+    private static Vector3D ComputeEulerFromMatrix(Vector3D col0, Vector3D col1, Vector3D col2)
+    {
+        float r02 = col2.X;
+        float eulerXDeg, eulerYDeg, eulerZDeg;
+
+        if (MathF.Abs(MathF.Abs(r02) - 1f) < 1e-6f)
+        {
+            eulerXDeg = 0f;
+            eulerYDeg = r02 > 0 ? -90f : 90f;
+            eulerZDeg = MathF.Atan2(-col0.Y, col0.X) * (180f / MathF.PI);
+        }
+        else
+        {
+            eulerXDeg = -MathF.Atan2(col2.Y, col2.Z) * (180f / MathF.PI);
+            eulerYDeg = -MathF.Asin(r02) * (180f / MathF.PI);
+            eulerZDeg = -MathF.Atan2(col1.X, col0.X) * (180f / MathF.PI);
+        }
+
+        return new Vector3D(eulerXDeg, eulerYDeg, eulerZDeg);
+    }
 
     // ============== Animations deserialization ==============
 
