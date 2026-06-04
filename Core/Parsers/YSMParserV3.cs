@@ -616,10 +616,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     {
                         if (uvi++ > 0) cube.Append(',');
                         cube.Append('"').Append(EscapeJsonString(kv.Key)).Append("\":{\"uv\":[")
-                            .Append(FormatNumber(kv.Value.U)).Append(',')
-                            .Append(FormatNumber(kv.Value.V)).Append("],\"uv_size\":[")
-                            .Append(FormatNumber(kv.Value.USize)).Append(',')
-                            .Append(FormatNumber(kv.Value.VSize)).Append("]}");
+                            .Append(FormatNumber(kv.Value.U * model.Description.TextureWidth)).Append(',')
+                            .Append(FormatNumber(kv.Value.V * model.Description.TextureHeight)).Append("],\"uv_size\":[")
+                            .Append(FormatNumber(kv.Value.USize * model.Description.TextureWidth)).Append(',')
+                            .Append(FormatNumber(kv.Value.VSize * model.Description.TextureHeight)).Append("]}");
                     }
                     cube.Append("}}");
                     cubes.Add(cube.ToString());
@@ -816,7 +816,32 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             Rotation = Vector3D.Zero,
             Uv = []
         };
+
+        foreach (var (normal, _, _, face) in faceInfos)
+        {
+            string? faceName = GetFaceNameFromNormal(normal);
+            if (faceName is null) continue;
+
+            float minU = MathF.Min(MathF.Min(face.V0.U, face.V1.U), MathF.Min(face.V2.U, face.V3.U));
+            float maxU = MathF.Max(MathF.Max(face.V0.U, face.V1.U), MathF.Max(face.V2.U, face.V3.U));
+            float minV = MathF.Min(MathF.Min(face.V0.V, face.V1.V), MathF.Min(face.V2.V, face.V3.V));
+            float maxV = MathF.Max(MathF.Max(face.V0.V, face.V1.V), MathF.Max(face.V2.V, face.V3.V));
+
+            result.Uv[faceName] = new UVBox(minU, minV, maxU - minU, maxV - minV);
+        }
+
         return result;
+    }
+
+    private static string? GetFaceNameFromNormal(Vector3D n)
+    {
+        float ex = MathF.Abs(n.X);
+        float ey = MathF.Abs(n.Y);
+        float ez = MathF.Abs(n.Z);
+        if (ey >= ex && ey >= ez) return n.Y > 0 ? "up" : "down";
+        if (ez >= ex && ez >= ey) return n.Z > 0 ? "south" : "north";
+        if (ex >= ey && ex >= ez) return n.X > 0 ? "east" : "west";
+        return null;
     }
 
     private static float Dot(Vector3D a, Vector3D b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
