@@ -7,13 +7,12 @@ namespace YSMParser.Core.Parsers;
 public sealed class YSMParserV1(byte[] buffer) : YSMParser
 {
     private readonly byte[] _buffer = buffer;
-    private readonly byte[]? _decryptedData;
     private readonly byte[] _key = new byte[16];
     private readonly Dictionary<string, byte[]> _resources = [];
 
     public override int GetYSGPVersion() => 1;
 
-    public override byte[] GetDecryptedData() => _decryptedData ?? [];
+    public override byte[] GetDecryptedData() => [];
 
     public override void Parse()
     {
@@ -88,5 +87,28 @@ public sealed class YSMParserV1(byte[] buffer) : YSMParser
 
             output.WriteLine($"    [{++index}] {fileName}  ({dataLen:N0} bytes encrypted)");
         }
+    }
+
+    public override YsmResourceData GetResources()
+    {
+        var models = new List<YsmResourceEntry>();
+        var textures = new List<YsmResourceEntry>();
+        var animations = new List<YsmResourceEntry>();
+
+        foreach (var (name, data) in _resources)
+        {
+            if (name.EndsWith(".animation.json", StringComparison.OrdinalIgnoreCase) || name.Contains("animation"))
+                animations.Add(new(name, data));
+            else if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
+                textures.Add(new(name, data));
+            else if (name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                models.Add(new(name, data));
+            else
+                models.Add(new(name, data));
+        }
+
+        return new YsmResourceData(
+            models, textures, animations,
+            [], [], [], [], [], [], [], null, null);
     }
 }

@@ -658,6 +658,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     private struct UVBox
     {
         public float U, V, USize, VSize;
+        public UVBox(float u, float v, float uSize, float vSize)
+        {
+            U = u; V = v; USize = uSize; VSize = vSize;
+        }
     }
 
     private static float CleanVal(float v) => MathF.Round(v * 10000f) / 10000f;
@@ -2020,5 +2024,25 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllBytes(filePath, data);
         }
+    }
+
+    public override YsmResourceData GetResources()
+    {
+        static List<YsmResourceEntry> Convert(List<(string Name, byte[] Data)> source)
+            => source.ConvertAll(x => new YsmResourceEntry(x.Name, x.Data));
+
+        return new YsmResourceData(
+            Convert(_modelFiles),
+            Convert(_textureFiles),
+            Convert(_animationFiles),
+            Convert(_animControllerFiles),
+            Convert(_soundFiles),
+            Convert(_functionFiles),
+            Convert(_languageFiles),
+            Convert(_avatarFiles),
+            Convert(_backgroundFiles),
+            Convert(_specialImageFiles),
+            _infoJsonFile.Length > 0 ? _infoJsonFile.ToArray() : null,
+            _ysmJsonFile.Length > 0 ? _ysmJsonFile.ToArray() : null);
     }
 }

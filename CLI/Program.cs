@@ -52,7 +52,7 @@ internal static class Program
             {
                 throw new DirectoryNotFoundException($"Input directory does not exist: {inputDir}");
             }
-            if (!infoOnly && !Directory.Exists(outputDir))
+            if (!infoOnly && outputDir is not null && !Directory.Exists(outputDir))
             {
                 Directory.CreateDirectory(outputDir);
             }
