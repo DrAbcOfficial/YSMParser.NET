@@ -124,9 +124,13 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
     private static string FormatNumber(float v)
     {
-        if (MathF.Abs(v) < 1e-6f) return "0.0";
-        if (MathF.Abs(v - MathF.Round(v)) < 1e-6f) return MathF.Round(v).ToString("0.######", CultureInfo.InvariantCulture);
-        return v.ToString("0.######", CultureInfo.InvariantCulture);
+        if (MathF.Abs(v) < 1e-9f) return "0.0";
+        // Match C++ clean_number: round to 5 decimal places first
+        float r = MathF.Round(v * 100000f) / 100000f;
+        if (MathF.Abs(r - MathF.Round(r)) < 1e-6f) return MathF.Round(r).ToString("0.0", CultureInfo.InvariantCulture);
+        var s = r.ToString("0.######", CultureInfo.InvariantCulture);
+        if (!s.Contains('.')) s += ".0";
+        return s;
     }
 
     private static string FormatTime(float v)
@@ -227,7 +231,14 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
         public string ToJson()
         {
-            if (IsFloat) return MathF.Abs(Float!.Value) < 1e-6f ? "0" : Float!.Value.ToString("0.######", CultureInfo.InvariantCulture);
+            if (IsFloat)
+            {
+                float f = Float!.Value;
+                if (MathF.Abs(f) < 1e-6f) return "0.0";
+                var s = f.ToString("0.######", CultureInfo.InvariantCulture);
+                if (!s.Contains('.')) s += ".0";
+                return s;
+            }
             return "\"" + EscapeJsonString(Str!) + "\"";
         }
     }
@@ -264,7 +275,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 float f0 = M[0].Float!.Value, f1 = M[1].Float!.Value, f2 = M[2].Float!.Value;
                 if (MathF.Abs(f0 - f1) < 1e-6f && MathF.Abs(f1 - f2) < 1e-6f)
                 {
-                    return MathF.Abs(f0) < 1e-6f ? "0" : f0.ToString("0.######", CultureInfo.InvariantCulture);
+                    return M[0].ToJson();
                 }
             }
             else if (!M[0].IsFloat && !M[1].IsFloat && !M[2].IsFloat)
@@ -310,7 +321,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     private static MolangValue ReadMolangValue(BufferReader reader)
     {
         byte type = reader.ReadByte();
-        if (type == 0x01) return new MolangValue(reader.ReadFloat() / 20f);
+        if (type == 0x01) return new MolangValue(reader.ReadFloat());
         if (type == 0x02) return new MolangValue(reader.ReadString());
         throw new ParserUnknownFieldException();
     }
@@ -616,10 +627,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     {
                         if (uvi++ > 0) cube.Append(',');
                         cube.Append('"').Append(EscapeJsonString(kv.Key)).Append("\":{\"uv\":[")
-                            .Append(FormatNumber(kv.Value.U * model.Description.TextureWidth)).Append(',')
-                            .Append(FormatNumber(kv.Value.V * model.Description.TextureHeight)).Append("],\"uv_size\":[")
-                            .Append(FormatNumber(kv.Value.USize * model.Description.TextureWidth)).Append(',')
-                            .Append(FormatNumber(kv.Value.VSize * model.Description.TextureHeight)).Append("]}");
+                            .Append(FormatNumber(kv.Value.U)).Append(',')
+                            .Append(FormatNumber(kv.Value.V)).Append("],\"uv_size\":[")
+                            .Append(FormatNumber(kv.Value.USize)).Append(',')
+                            .Append(FormatNumber(kv.Value.VSize)).Append("]}");
                     }
                     cube.Append("}}");
                     cubes.Add(cube.ToString());
@@ -648,6 +659,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         public Vector3D Pivot;
         public Vector3D Rotation;
         public Dictionary<string, UVBox> Uv;
+        public float Inflate;
 
         public BlockbenchCube()
         {
@@ -666,10 +678,78 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
     private static float CleanVal(float v) => MathF.Round(v * 10000f) / 10000f;
 
+    private static float Dot(Vector3D a, Vector3D b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+
+    private static Vector3D Cross(Vector3D a, Vector3D b) =>
+        new(a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X);
+
+    private static float Length(Vector3D a) => MathF.Sqrt(Dot(a, a));
+
+    private static Vector3D Normalize(Vector3D a)
+    {
+        float l = Length(a);
+        return l > 1e-8f ? new Vector3D(a.X / l, a.Y / l, a.Z / l) : Vector3D.Zero;
+    }
+
+    private struct FaceInfo
+    {
+        public Vector3D NW;
+        public Vector3D TU;
+        public Vector3D TV;
+        public Face RawF;
+    }
+
+    private struct Matrix3x3
+    {
+        public Vector3D Col0, Col1, Col2;
+
+        public float Det() => Dot(Col0, Cross(Col1, Col2));
+
+        public Vector3D TransposeMul(Vector3D v) =>
+            new(Dot(Col0, v), Dot(Col1, v), Dot(Col2, v));
+    }
+
+    private static Vector3D MatrixToEulerXyz(Matrix3x3 m)
+    {
+        // col0 = R00,R10,R20; col1 = R01,R11,R21; col2 = R02,R12,R22
+        float sy = MathF.Sqrt(m.Col0.X * m.Col0.X + m.Col0.Y * m.Col0.Y);
+        bool singular = sy < 1e-6f;
+        float xRad, yRad, zRad;
+
+        if (!singular)
+        {
+            xRad = MathF.Atan2(m.Col1.Z, m.Col2.Z);  // atan2(R21, R22)
+            yRad = MathF.Atan2(-m.Col0.Z, sy);       // atan2(-R20, sy)
+            zRad = MathF.Atan2(m.Col0.Y, m.Col0.X);  // atan2(R10, R00)
+        }
+        else
+        {
+            xRad = MathF.Atan2(-m.Col2.Y, m.Col1.Y); // atan2(-R12, R11)
+            yRad = MathF.Atan2(-m.Col0.Z, sy);
+            zRad = 0f;
+        }
+
+        float radToDeg = 180f / MathF.PI;
+        return new Vector3D(xRad * radToDeg, yRad * radToDeg, zRad * radToDeg);
+    }
+
+    private static void GetExpectedUVDirs(Vector3D localNormal, out Vector3D expU, out Vector3D expV)
+    {
+        var n = new Vector3D(MathF.Round(localNormal.X), MathF.Round(localNormal.Y), MathF.Round(localNormal.Z));
+        if (n.X == -1f) { expU = new Vector3D(0, 0, 1);  expV = new Vector3D(0, -1, 0); return; }
+        if (n.X == 1f)  { expU = new Vector3D(0, 0, -1); expV = new Vector3D(0, -1, 0); return; }
+        if (n.Y == 1f)  { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, 0, -1); return; }
+        if (n.Y == -1f) { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, 0, 1);  return; }
+        if (n.Z == -1f) { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, -1, 0); return; }
+        if (n.Z == 1f)  { expU = new Vector3D(1, 0, 0);  expV = new Vector3D(0, -1, 0); return; }
+        expU = Vector3D.Zero;
+        expV = Vector3D.Zero;
+    }
+
     private static BlockbenchCube RestoreBlockbenchCube(List<Face> facesData, float originalInflate, int textureWidth, int textureHeight)
     {
-        var uniquePts = new HashSet<(int, int, int)>();
-        var faceInfos = new List<(Vector3D n, Vector3D tu, Vector3D tv, Face raw)>();
+        var uniquePts = new HashSet<(float, float, float)>();
+        var faceInfos = new List<FaceInfo>();
         var candidateAxes = new List<Vector3D>();
 
         foreach (var f in facesData)
@@ -681,74 +761,76 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 if (i == 1) verts[i] = f.V1.Vec * 16f;
                 if (i == 2) verts[i] = f.V2.Vec * 16f;
                 if (i == 3) verts[i] = f.V3.Vec * 16f;
-                var (rx, ry, rz) = (
-                    (int)MathF.Round(verts[i].X * 10000f),
-                    (int)MathF.Round(verts[i].Y * 10000f),
-                    (int)MathF.Round(verts[i].Z * 10000f));
-                uniquePts.Add((rx, ry, rz));
+                var p4 = new Vector3D(
+                    MathF.Round(verts[i].X * 10000f) / 10000f,
+                    MathF.Round(verts[i].Y * 10000f) / 10000f,
+                    MathF.Round(verts[i].Z * 10000f) / 10000f);
+                uniquePts.Add((p4.X, p4.Y, p4.Z));
             }
 
             var nW = f.Normal;
-            var tu = Vector3D.Zero;
-            var tv = Vector3D.Zero;
-            var vList = new Vertex[] { f.V0, f.V1, f.V2, f.V3 };
+            var tU = Vector3D.Zero;
+            var tV = Vector3D.Zero;
+
             for (int i = 0; i < 4; i++)
             {
                 int j = (i + 1) % 4;
-                var dx = vList[i].Vec - vList[j].Vec;
-                float du = vList[i].U - vList[j].U;
-                float dv = vList[i].V - vList[j].V;
+                var vi = i == 0 ? f.V0 : i == 1 ? f.V1 : i == 2 ? f.V2 : f.V3;
+                var vj = j == 0 ? f.V0 : j == 1 ? f.V1 : j == 2 ? f.V2 : f.V3;
+                var viScaled = vi.Vec * 16f;
+                var vjScaled = vj.Vec * 16f;
+                var dx = viScaled - vjScaled;
+                float du = vi.U - vj.U;
+                float dv = vi.V - vj.V;
                 float lenDx = MathF.Sqrt(dx.X * dx.X + dx.Y * dx.Y + dx.Z * dx.Z);
                 if (lenDx < 1e-5f) continue;
+
                 if (MathF.Abs(du) > 1e-5f && MathF.Abs(dv) < 1e-5f)
                 {
                     float sign = du > 0 ? 1f : -1f;
-                    tu = new Vector3D(dx.X * sign / lenDx, dx.Y * sign / lenDx, dx.Z * sign / lenDx);
+                    tU = dx * (sign / lenDx);
                 }
                 if (MathF.Abs(dv) > 1e-5f && MathF.Abs(du) < 1e-5f)
                 {
                     float sign = dv > 0 ? 1f : -1f;
-                    tv = new Vector3D(dx.X * sign / lenDx, dx.Y * sign / lenDx, dx.Z * sign / lenDx);
+                    tV = dx * (sign / lenDx);
                 }
             }
 
-            faceInfos.Add((nW, tu, tv, f));
+            faceInfos.Add(new FaceInfo { NW = nW, TU = tU, TV = tV, RawF = f });
+
             candidateAxes.Add(nW);
+            if (Length(tU) > 0.5f) candidateAxes.Add(tU);
+            if (Length(tV) > 0.5f) candidateAxes.Add(tV);
         }
 
-        // Dedupe candidate axes similar to C++ implementation
+        // Deduplicate axes (max 3)
         var rawAxes = new List<Vector3D>();
         foreach (var vec in candidateAxes)
         {
-            float len = MathF.Sqrt(vec.X * vec.X + vec.Y * vec.Y + vec.Z * vec.Z);
-            if (len < 1e-8f) continue;
-            var vN = new Vector3D(vec.X / len, vec.Y / len, vec.Z / len);
+            var vecNorm = Normalize(vec);
+            if (Length(vecNorm) < 1e-8f) continue;
             bool exists = false;
             foreach (var a in rawAxes)
             {
-                if (MathF.Abs(vN.X * a.X + vN.Y * a.Y + vN.Z * a.Z) > 0.95f) { exists = true; break; }
+                if (MathF.Abs(Dot(vecNorm, a)) > 0.95f) { exists = true; break; }
             }
-            if (!exists) rawAxes.Add(vN);
+            if (!exists) rawAxes.Add(vecNorm);
+            if (rawAxes.Count == 3) break;
         }
 
         if (rawAxes.Count == 1)
         {
             var n = rawAxes[0];
             var temp = MathF.Abs(n.X) < 0.9f ? new Vector3D(1, 0, 0) : new Vector3D(0, 1, 0);
-            var u = new Vector3D(n.Y * temp.Z - n.Z * temp.Y, n.Z * temp.X - n.X * temp.Z, n.X * temp.Y - n.Y * temp.X);
-            float ulen = MathF.Sqrt(u.X * u.X + u.Y * u.Y + u.Z * u.Z);
-            u = ulen > 1e-8f ? new Vector3D(u.X / ulen, u.Y / ulen, u.Z / ulen) : Vector3D.Zero;
-            var v = new Vector3D(n.Y * u.Z - n.Z * u.Y, n.Z * u.X - n.X * u.Z, n.X * u.Y - n.Y * u.X);
+            var u = Normalize(Cross(n, temp));
             rawAxes.Add(u);
-            rawAxes.Add(v);
+            rawAxes.Add(Normalize(Cross(n, u)));
         }
         else if (rawAxes.Count == 2)
         {
-            var w = new Vector3D(rawAxes[0].Y * rawAxes[1].Z - rawAxes[0].Z * rawAxes[1].Y,
-                                  rawAxes[0].Z * rawAxes[1].X - rawAxes[0].X * rawAxes[1].Z,
-                                  rawAxes[0].X * rawAxes[1].Y - rawAxes[0].Y * rawAxes[1].X);
-            float wl = MathF.Sqrt(w.X * w.X + w.Y * w.Y + w.Z * w.Z);
-            if (wl > 1e-5f) rawAxes.Add(new Vector3D(w.X / wl, w.Y / wl, w.Z / wl));
+            var w = Cross(rawAxes[0], rawAxes[1]);
+            if (Length(w) > 1e-5f) rawAxes.Add(Normalize(w));
         }
         else if (rawAxes.Count == 0)
         {
@@ -757,181 +839,198 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             rawAxes.Add(new Vector3D(0, 0, 1));
         }
 
-        // Search best rotation by trying all permutations and sign assignments.
-        // Pick the one that gives the tightest axis-aligned bounding box.
-        var signs = new int[][] {
-            [ 1,  1,  1], [ 1,  1, -1], [ 1, -1,  1],
-            [ 1, -1, -1], [-1,  1,  1], [-1,  1, -1],
-            [-1, -1,  1], [-1, -1, -1],
-        };
-        var perms = new int[][] {
-            [0, 1, 2], [0, 2, 1], [1, 0, 2],
-            [1, 2, 0], [2, 0, 1], [2, 1, 0],
-        };
+        // Rotation matrix search (matching C++ score based on UV tangents alignment)
+        float bestScore = float.NegativeInfinity;
+        Matrix3x3 bestRotMatrix = default;
+        Vector3D bestEuler = Vector3D.Zero;
+        float minEulerSum = float.PositiveInfinity;
 
-        var bestRot = new Vector3D[3];
-        bestRot[0] = rawAxes[0];
-        bestRot[1] = rawAxes[1];
-        bestRot[2] = rawAxes[2];
-        float bestVolume = float.MaxValue;
-        float bestAlignment = 0f;
+        int[][] perms = { [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0] };
+        float[][] signs = { [1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1], [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1] };
 
-        foreach (var sign in signs)
+        foreach (var p in perms)
         {
-            foreach (var perm in perms)
+            foreach (var s in signs)
             {
-                var testAxes = new Vector3D[3];
-                for (int i = 0; i < 3; i++)
-                    testAxes[i] = rawAxes[perm[i]] * sign[i];
+                Matrix3x3 mat;
+                mat.Col0 = rawAxes[p[0]] * s[0];
+                mat.Col1 = rawAxes[p[1]] * s[1];
+                mat.Col2 = rawAxes[p[2]] * s[2];
 
-                // Orthogonalize the test axes
-                var t0 = testAxes[0];
-                float t0Len = MathF.Sqrt(t0.X * t0.X + t0.Y * t0.Y + t0.Z * t0.Z);
-                if (t0Len < 1e-8f) continue;
-                t0 = new Vector3D(t0.X / t0Len, t0.Y / t0Len, t0.Z / t0Len);
+                if (mat.Det() < 0.9f) continue;
 
-                var proj2 = new Vector3D(t0.X * Dot(testAxes[1], t0), t0.Y * Dot(testAxes[1], t0), t0.Z * Dot(testAxes[1], t0));
-                var t1raw = testAxes[1] - proj2;
-                float t1Len = MathF.Sqrt(t1raw.X * t1raw.X + t1raw.Y * t1raw.Y + t1raw.Z * t1raw.Z);
-                if (t1Len < 1e-8f) continue;
-                var t1 = new Vector3D(t1raw.X / t1Len, t1raw.Y / t1Len, t1raw.Z / t1Len);
+                Matrix3x3 rotMat;
+                rotMat.Col0 = Normalize(mat.Col0);
+                var projOn0 = rotMat.Col0 * Dot(mat.Col1, rotMat.Col0);
+                rotMat.Col1 = Normalize(mat.Col1 - projOn0);
+                rotMat.Col2 = Normalize(Cross(rotMat.Col0, rotMat.Col1));
 
-                var t2 = new Vector3D(t0.Y * t1.Z - t0.Z * t1.Y, t0.Z * t1.X - t0.X * t1.Z, t0.X * t1.Y - t0.Y * t1.X);
-
-                // Compute bounding box volume in this orientation
-                float vMinX = float.MaxValue, vMinY = float.MaxValue, vMinZ = float.MaxValue;
-                float vMaxX = float.MinValue, vMaxY = float.MinValue, vMaxZ = float.MinValue;
-                foreach (var (rx, ry, rz) in uniquePts)
+                float score = 0f;
+                foreach (var info in faceInfos)
                 {
-                    var pt = new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
-                    float px = Dot(pt, t0);
-                    float py = Dot(pt, t1);
-                    float pz = Dot(pt, t2);
-                    vMinX = MathF.Min(vMinX, px); vMaxX = MathF.Max(vMaxX, px);
-                    vMinY = MathF.Min(vMinY, py); vMaxY = MathF.Max(vMaxY, py);
-                    vMinZ = MathF.Min(vMinZ, pz); vMaxZ = MathF.Max(vMaxZ, pz);
+                    var nLocal = rotMat.TransposeMul(info.NW);
+                    var tULocal = rotMat.TransposeMul(info.TU);
+                    var tVLocal = rotMat.TransposeMul(info.TV);
+
+                    GetExpectedUVDirs(nLocal, out var expU, out var expV);
+
+                    score += MathF.Abs(Dot(tULocal, expU));
+                    score += MathF.Abs(Dot(tVLocal, expV));
                 }
 
-                float vol = (vMaxX - vMinX) * (vMaxY - vMinY) * (vMaxZ - vMinZ);
+                var euler = MatrixToEulerXyz(rotMat);
+                float eulerSum = MathF.Abs(euler.X) + MathF.Abs(euler.Y) + MathF.Abs(euler.Z);
 
-                // Compute alignment: how well face normals match the axes
-                float alignment = 0f;
-                foreach (var (normal, _, _, _) in faceInfos)
+                if (score > bestScore + 1e-4f)
                 {
-                    float dot0 = MathF.Abs(Dot(normal, t0));
-                    float dot1 = MathF.Abs(Dot(normal, t1));
-                    float dot2 = MathF.Abs(Dot(normal, t2));
-                    alignment += MathF.Max(dot0, MathF.Max(dot1, dot2));
+                    bestScore = score;
+                    bestRotMatrix = rotMat;
+                    bestEuler = euler;
+                    minEulerSum = eulerSum;
                 }
-
-                if (vol < bestVolume * 0.99f || (MathF.Abs(vol - bestVolume) / bestVolume < 0.01f && alignment > bestAlignment))
+                else if (MathF.Abs(score - bestScore) <= 1e-4f && eulerSum < minEulerSum)
                 {
-                    bestVolume = vol;
-                    bestAlignment = alignment;
-                    bestRot[0] = t0;
-                    bestRot[1] = t1;
-                    bestRot[2] = t2;
+                    bestRotMatrix = rotMat;
+                    bestEuler = euler;
+                    minEulerSum = eulerSum;
                 }
             }
         }
 
-        // Orthogonalize best rotation
-        var col0 = bestRot[0];
-        float col0Len = MathF.Sqrt(col0.X * col0.X + col0.Y * col0.Y + col0.Z * col0.Z);
-        col0 = col0Len > 1e-8f ? new Vector3D(col0.X / col0Len, col0.Y / col0Len, col0.Z / col0Len) : new Vector3D(1, 0, 0);
-        var proj = new Vector3D(col0.X * Dot(bestRot[1], col0), col0.Y * Dot(bestRot[1], col0), col0.Z * Dot(bestRot[1], col0));
-        var col1raw = bestRot[1] - proj;
-        float col1Len = MathF.Sqrt(col1raw.X * col1raw.X + col1raw.Y * col1raw.Y + col1raw.Z * col1raw.Z);
-        var col1 = col1Len > 1e-8f ? new Vector3D(col1raw.X / col1Len, col1raw.Y / col1Len, col1raw.Z / col1Len) : new Vector3D(0, 1, 0);
-        var col2 = new Vector3D(col0.Y * col1.Z - col0.Z * col1.Y, col0.Z * col1.X - col0.X * col1.Z, col0.X * col1.Y - col0.Y * col1.X);
-        bestRot[0] = col0; bestRot[1] = col1; bestRot[2] = col2;
+        // Local-space AABB to get center
+        float localMinX = float.PositiveInfinity, localMinY = float.PositiveInfinity, localMinZ = float.PositiveInfinity;
+        float localMaxX = float.NegativeInfinity, localMaxY = float.NegativeInfinity, localMaxZ = float.NegativeInfinity;
 
-        // Compute center in world coords.
-        var centerWorld = Vector3D.Zero;
-        foreach (var (rx, ry, rz) in uniquePts)
+        foreach (var (px, py, pz) in uniquePts)
         {
-            centerWorld += new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
-        }
-        int ptCount = Math.Max(1, uniquePts.Count);
-        centerWorld = new Vector3D(centerWorld.X / ptCount, centerWorld.Y / ptCount, centerWorld.Z / ptCount);
-
-        // Compute local-space origin and size by projecting vertices onto bestRot axes.
-        float lxMin = float.MaxValue, lyMin = float.MaxValue, lzMin = float.MaxValue;
-        float lxMax = float.MinValue, lyMax = float.MinValue, lzMax = float.MinValue;
-        foreach (var (rx, ry, rz) in uniquePts)
-        {
-            var pt = new Vector3D(rx / 10000f, ry / 10000f, rz / 10000f);
-            float px = Dot(pt, col0);
-            float py = Dot(pt, col1);
-            float pz = Dot(pt, col2);
-            lxMin = MathF.Min(lxMin, px); lxMax = MathF.Max(lxMax, px);
-            lyMin = MathF.Min(lyMin, py); lyMax = MathF.Max(lyMax, py);
-            lzMin = MathF.Min(lzMin, pz); lzMax = MathF.Max(lzMax, pz);
+            var pt = new Vector3D(px, py, pz);
+            var lp = bestRotMatrix.TransposeMul(pt);
+            localMinX = MathF.Min(localMinX, lp.X);
+            localMinY = MathF.Min(localMinY, lp.Y);
+            localMinZ = MathF.Min(localMinZ, lp.Z);
+            localMaxX = MathF.Max(localMaxX, lp.X);
+            localMaxY = MathF.Max(localMaxY, lp.Y);
+            localMaxZ = MathF.Max(localMaxZ, lp.Z);
         }
 
-        var bbOrigin = new Vector3D(lxMin, lyMin, lzMin);
-        var bbSize = new Vector3D(lxMax - lxMin, lyMax - lyMin, lzMax - lzMin);
+        var localCenter = new Vector3D(
+            (localMinX + localMaxX) / 2f,
+            (localMinY + localMaxY) / 2f,
+            (localMinZ + localMaxZ) / 2f);
 
-        // Pivot in world space (matches original: negate X of center)
-        var bbPivot = new Vector3D(-centerWorld.X, centerWorld.Y, centerWorld.Z);
+        // Forward-rotate local center to world space
+        var dumpCenter = bestRotMatrix.Col0 * localCenter.X +
+                         bestRotMatrix.Col1 * localCenter.Y +
+                         bestRotMatrix.Col2 * localCenter.Z;
+
+        var bbPivot = new Vector3D(-dumpCenter.X, dumpCenter.Y, dumpCenter.Z);
+
+        // Size signs
+        var sizeSigns = new Vector3D(1, 1, 1);
+        for (int axIdx = 0; axIdx < 3; axIdx++)
+        {
+            var localAx = axIdx == 0 ? bestRotMatrix.Col0 : axIdx == 1 ? bestRotMatrix.Col1 : bestRotMatrix.Col2;
+            foreach (var info in faceInfos)
+            {
+                var nLocal = bestRotMatrix.TransposeMul(info.NW);
+                float nLocalVal = axIdx == 0 ? nLocal.X : axIdx == 1 ? nLocal.Y : nLocal.Z;
+                if (MathF.Abs(nLocalVal) > 0.5f)
+                {
+                    var faceCenter = Vector3D.Zero;
+                    var rf = info.RawF;
+                    faceCenter += rf.V0.Vec * 16f;
+                    faceCenter += rf.V1.Vec * 16f;
+                    faceCenter += rf.V2.Vec * 16f;
+                    faceCenter += rf.V3.Vec * 16f;
+                    faceCenter *= 0.25f;
+                    var offset = faceCenter - dumpCenter;
+                    float dotOff = Dot(offset, localAx);
+                    if (MathF.Abs(dotOff) > 1e-3f)
+                    {
+                        if (dotOff * nLocalVal < 0)
+                        {
+                            if (axIdx == 0) sizeSigns = new Vector3D(-1, sizeSigns.Y, sizeSigns.Z);
+                            else if (axIdx == 1) sizeSigns = new Vector3D(sizeSigns.X, -1, sizeSigns.Z);
+                            else sizeSigns = new Vector3D(sizeSigns.X, sizeSigns.Y, -1);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Compute size: max distance from center in each axis direction, doubled, minus inflate
+        float sxMax = 0, syMax = 0, szMax = 0;
+        foreach (var (px, py, pz) in uniquePts)
+        {
+            var pt = new Vector3D(px, py, pz);
+            var d = pt - dumpCenter;
+            sxMax = MathF.Max(sxMax, MathF.Abs(Dot(d, bestRotMatrix.Col0)));
+            syMax = MathF.Max(syMax, MathF.Abs(Dot(d, bestRotMatrix.Col1)));
+            szMax = MathF.Max(szMax, MathF.Abs(Dot(d, bestRotMatrix.Col2)));
+        }
+
+        var bbSize = new Vector3D(
+            (sxMax * 2f - 2f * originalInflate) * sizeSigns.X,
+            (syMax * 2f - 2f * originalInflate) * sizeSigns.Y,
+            (szMax * 2f - 2f * originalInflate) * sizeSigns.Z);
+
+        var bbOrigin = bbPivot - bbSize * 0.5f;
+
+        var bbRot = new Vector3D(-bestEuler.X, -bestEuler.Y, bestEuler.Z);
 
         var result = new BlockbenchCube
         {
             Origin = bbOrigin,
             Size = bbSize,
+            Inflate = originalInflate,
             Pivot = bbPivot,
-            Rotation = ComputeEulerFromMatrix(col0, col1, col2),
+            Rotation = bbRot,
             Uv = []
         };
 
-        foreach (var (normal, _, _, face) in faceInfos)
+        // UV boxes
+        foreach (var info in faceInfos)
         {
-            string? faceName = GetFaceNameFromNormal(normal);
-            if (faceName is null) continue;
+            var nLocal = bestRotMatrix.TransposeMul(info.NW);
+            var tULocal = bestRotMatrix.TransposeMul(info.TU);
+            var tVLocal = bestRotMatrix.TransposeMul(info.TV);
 
-            float minU = MathF.Min(MathF.Min(face.V0.U, face.V1.U), MathF.Min(face.V2.U, face.V3.U));
-            float maxU = MathF.Max(MathF.Max(face.V0.U, face.V1.U), MathF.Max(face.V2.U, face.V3.U));
-            float minV = MathF.Min(MathF.Min(face.V0.V, face.V1.V), MathF.Min(face.V2.V, face.V3.V));
-            float maxV = MathF.Max(MathF.Max(face.V0.V, face.V1.V), MathF.Max(face.V2.V, face.V3.V));
+            GetExpectedUVDirs(nLocal, out var rawExpU, out var rawExpV);
+            var expU = rawExpU * sizeSigns;
+            var expV = rawExpV * sizeSigns;
 
-            result.Uv[faceName] = new UVBox(minU, minV, maxU - minU, maxV - minV);
+            float uMin = float.PositiveInfinity, vMin = float.PositiveInfinity;
+            float uMax = float.NegativeInfinity, vMax = float.NegativeInfinity;
+
+            var rf = info.RawF;
+            float u0 = rf.V0.U * textureWidth, v0 = rf.V0.V * textureHeight;
+            float u1 = rf.V1.U * textureWidth, v1 = rf.V1.V * textureHeight;
+            float u2 = rf.V2.U * textureWidth, v2 = rf.V2.V * textureHeight;
+            float u3 = rf.V3.U * textureWidth, v3 = rf.V3.V * textureHeight;
+
+            uMin = MathF.Min(MathF.Min(u0, u1), MathF.Min(u2, u3));
+            uMax = MathF.Max(MathF.Max(u0, u1), MathF.Max(u2, u3));
+            vMin = MathF.Min(MathF.Min(v0, v1), MathF.Min(v2, v3));
+            vMax = MathF.Max(MathF.Max(v0, v1), MathF.Max(v2, v3));
+
+            float uStart = uMin, vStart = vMin;
+            float uSz = uMax - uMin, vSz = vMax - vMin;
+
+            if (Dot(tULocal, expU) < -0.2f) { uStart = uMax; uSz = -uSz; }
+            if (Dot(tVLocal, expV) < -0.2f) { vStart = vMax; vSz = -vSz; }
+
+            var box = new UVBox(CleanVal(uStart), CleanVal(vStart), CleanVal(uSz), CleanVal(vSz));
+
+            if (Dot(nLocal, new Vector3D(1, 0, 0)) > 0.9f) result.Uv["east"] = box;
+            else if (Dot(nLocal, new Vector3D(-1, 0, 0)) > 0.9f) result.Uv["west"] = box;
+            else if (Dot(nLocal, new Vector3D(0, 1, 0)) > 0.9f) result.Uv["up"] = box;
+            else if (Dot(nLocal, new Vector3D(0, -1, 0)) > 0.9f) result.Uv["down"] = box;
+            else if (Dot(nLocal, new Vector3D(0, 0, 1)) > 0.9f) result.Uv["south"] = box;
+            else if (Dot(nLocal, new Vector3D(0, 0, -1)) > 0.9f) result.Uv["north"] = box;
         }
 
         return result;
-    }
-
-    private static string? GetFaceNameFromNormal(Vector3D n)
-    {
-        float ex = MathF.Abs(n.X);
-        float ey = MathF.Abs(n.Y);
-        float ez = MathF.Abs(n.Z);
-        if (ey >= ex && ey >= ez) return n.Y > 0 ? "up" : "down";
-        if (ez >= ex && ez >= ey) return n.Z > 0 ? "south" : "north";
-        if (ex >= ey && ex >= ez) return n.X > 0 ? "east" : "west";
-        return null;
-    }
-
-    private static float Dot(Vector3D a, Vector3D b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
-
-    private static Vector3D ComputeEulerFromMatrix(Vector3D col0, Vector3D col1, Vector3D col2)
-    {
-        float r02 = col2.X;
-        float eulerXDeg, eulerYDeg, eulerZDeg;
-
-        if (MathF.Abs(MathF.Abs(r02) - 1f) < 1e-6f)
-        {
-            eulerXDeg = 0f;
-            eulerYDeg = r02 > 0 ? -90f : 90f;
-            eulerZDeg = MathF.Atan2(-col0.Y, col0.X) * (180f / MathF.PI);
-        }
-        else
-        {
-            eulerXDeg = -MathF.Atan2(col2.Y, col2.Z) * (180f / MathF.PI);
-            eulerYDeg = -MathF.Asin(r02) * (180f / MathF.PI);
-            eulerZDeg = -MathF.Atan2(col1.X, col0.X) * (180f / MathF.PI);
-        }
-
-        return new Vector3D(eulerXDeg, eulerYDeg, eulerZDeg);
     }
 
     // ============== Animations deserialization ==============
@@ -1029,7 +1128,6 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             animations[animName] = animObj;
         }
 
-        CleanJsonFloats(root);
         return Encoding.UTF8.GetBytes(DumpJson(root, FormatJson));
     }
 
