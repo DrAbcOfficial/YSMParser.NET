@@ -67,6 +67,12 @@ jobs:
             --self-contained false \
             -o ./publish
 
+      - name: Zip CLI
+        run: |
+          cd ./publish
+          zip -r ../cli.zip .
+          cd ..
+
       - name: Pack
         run: |
           if [ -n "$VERSION_OVERRIDE" ]; then
@@ -87,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: cli
-          path: ./publish/*
+          path: ./cli.zip
 
       - name: Create Release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -97,4 +103,4 @@ jobs:
           files: |
             ./artifacts/*.nupkg
             ./artifacts/*.snupkg
-            ./publish/*
+            ./cli.zip
