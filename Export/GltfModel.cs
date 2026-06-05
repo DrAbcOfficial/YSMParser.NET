@@ -215,10 +215,10 @@ internal sealed class GltfTextureInfo
 internal sealed class GltfSampler
 {
     [JsonPropertyName("magFilter")]
-    public int? MagFilter { get; set; }
+    public int? MagFilter { get; set; } = 9728;
 
     [JsonPropertyName("minFilter")]
-    public int? MinFilter { get; set; }
+    public int? MinFilter { get; set; } = 9728;
 
     [JsonPropertyName("wrapS")]
     public int WrapS { get; set; } = 10497;

@@ -65,6 +65,11 @@ public static class GltfExporter
         return ms.ToArray();
     }
 
+    public static MemoryStream ToGlbStream(byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
+    {
+        return new MemoryStream(ToGlb(geometryJson, texturePng, mirror));
+    }
+
     public static void ToGlb(string outputPath, byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
     {
         var data = ToGlb(geometryJson, texturePng, mirror);
@@ -122,14 +127,15 @@ public static class GltfExporter
         int textureWidth = (int)(geometry.Description.TextureWidth > 0 ? geometry.Description.TextureWidth : 64);
         int textureHeight = (int)(geometry.Description.TextureHeight > 0 ? geometry.Description.TextureHeight : 64);
 
-        int imageBufferView = -1;
+        int imageBufferViewIndex = -1;
         if (texturePng is { Length: > 0 } && embedTextureInBuffer)
         {
-            imageBufferView = writer.WriteAlignedBytes(texturePng, 4);
+            var imageByteOffset = writer.WriteAlignedBytes(texturePng, 4);
+            imageBufferViewIndex = bufferViews.Count;
             bufferViews.Add(new GltfBufferView
             {
                 Buffer = 0,
-                ByteOffset = imageBufferView,
+                ByteOffset = imageByteOffset,
                 ByteLength = texturePng.Length,
             });
         }
@@ -406,7 +412,7 @@ public static class GltfExporter
 
         if (embedTextureInBuffer && texturePng is { Length: > 0 })
         {
-            root.Images = [new GltfImage { MimeType = textureMimeType, BufferView = bufferViews.Count - 1 }];
+            root.Images = [new GltfImage { MimeType = textureMimeType, BufferView = imageBufferViewIndex }];
             root.Textures = [new GltfTexture { Source = 0 }];
             root.Samplers = [new GltfSampler()];
         }
