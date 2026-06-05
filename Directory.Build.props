@@ -4,7 +4,7 @@
     <Authors>DrAbc</Authors>
     <Description>YSMParser.Net - A pure .NET parser for .ysm Minecraft player model files</Description>
     <Copyright>Copyright (c) DrAbc</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/DrAbcOfficial/YSMParser.NET</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DrAbcOfficial/YSMParser.NET</RepositoryUrl>
@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>
