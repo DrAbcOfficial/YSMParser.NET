@@ -51,7 +51,6 @@ jobs:
           echo "VERSION_OVERRIDE=${{ inputs.version }}" >> $GITHUB_ENV
 
       - name: Publish CLI
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
         run: |
           dotnet publish CLI/YSMParser.CLI.csproj \
             --configuration Release \
@@ -61,7 +60,6 @@ jobs:
             -o ./publish
 
       - name: Pack
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
         run: |
           if [ -n "$VERSION_OVERRIDE" ]; then
             dotnet pack --configuration Release --no-build -p:Version="$VERSION_OVERRIDE" -p:PackageVersion="$VERSION_OVERRIDE" -o ./artifacts
