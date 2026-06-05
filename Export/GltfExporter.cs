@@ -430,41 +430,45 @@ public static class GltfExporter
         float tw = texW > 0 ? texW : 64f;
         float th = texH > 0 ? texH : 64f;
 
+        var cubeUV = cube.Uv;
+        if (cubeUV?.IsBoxUV == true && cube.Size is { Count: >= 3 })
+            cubeUV = cubeUV.Expand(cube.Size[0], cube.Size[1], cube.Size[2]);
+
         // East (x = max)
         AddFace(positions, normals, uvs, indices,
             maxX, maxY, maxZ, maxX, maxY, minZ, maxX, minY, maxZ, maxX, minY, minZ,
             1, 0, 0,
-            GetFaceUV(cube.Uv?.East, tw, th));
+            GetFaceUV(cubeUV?.East, tw, th));
 
         // West (x = min)
         AddFace(positions, normals, uvs, indices,
             minX, maxY, minZ, minX, maxY, maxZ, minX, minY, minZ, minX, minY, maxZ,
             -1, 0, 0,
-            GetFaceUV(cube.Uv?.West, tw, th));
+            GetFaceUV(cubeUV?.West, tw, th));
 
         // Up (y = max)
         AddFace(positions, normals, uvs, indices,
             minX, maxY, minZ, maxX, maxY, minZ, minX, maxY, maxZ, maxX, maxY, maxZ,
             0, 1, 0,
-            GetFaceUV(cube.Uv?.Up, tw, th));
+            GetFaceUV(cubeUV?.Up, tw, th));
 
         // Down (y = min)
         AddFace(positions, normals, uvs, indices,
             minX, minY, maxZ, maxX, minY, maxZ, minX, minY, minZ, maxX, minY, minZ,
             0, -1, 0,
-            GetFaceUV(cube.Uv?.Down, tw, th));
+            GetFaceUV(cubeUV?.Down, tw, th));
 
         // South (z = max)
         AddFace(positions, normals, uvs, indices,
             minX, maxY, maxZ, maxX, maxY, maxZ, minX, minY, maxZ, maxX, minY, maxZ,
             0, 0, 1,
-            GetFaceUV(cube.Uv?.South, tw, th));
+            GetFaceUV(cubeUV?.South, tw, th));
 
         // North (z = min)
         AddFace(positions, normals, uvs, indices,
             maxX, maxY, minZ, minX, maxY, minZ, maxX, minY, minZ, minX, minY, minZ,
             0, 0, -1,
-            GetFaceUV(cube.Uv?.North, tw, th));
+            GetFaceUV(cubeUV?.North, tw, th));
 
         return (positions, normals, uvs, indices);
     }
