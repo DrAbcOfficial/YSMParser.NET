@@ -57,10 +57,6 @@ jobs:
             dotnet pack --configuration Release --no-build -o ./artifacts
           fi
 
-      - name: Publish to NuGet.org
-        run: |
-          dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
