@@ -37,6 +37,10 @@ YSMParser -i <input> -n [--info]
 - **V2** — AES-CBC + JavaRandom key derivation + zlib
 - **V3** — XChaCha20 (dynamic rounds) + MT19937 XOR + zstd, with structured output layout
 
+## Acknowlegements
+
+[YSMParser](https://github.com/OpenYSM/YSMParser)
+
 ## Project Structure
 
 | Project | Purpose |
@@ -45,8 +49,3 @@ YSMParser -i <input> -n [--info]
 | `CLI/` | Console entrypoint, file discovery, batch processing. |
 | `Export/` | Standalone GLB/glTF exporter from Bedrock geometry JSON. |
 | `Tests/` | Unit tests for crypto and utilities. |
-
-
-## Acknowlegements
-
-[YSMParser](https://github.com/OpenYSM/YSMParser)

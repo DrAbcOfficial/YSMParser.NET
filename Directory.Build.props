@@ -6,8 +6,8 @@
     <Copyright>Copyright (c) DrAbc</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/DrAbcOfficial/YSMParser.Net</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/DrAbcOfficial/YSMParser.Net</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/DrAbcOfficial/YSMParser.NET</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DrAbcOfficial/YSMParser.NET</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>ysm;minecraft;bedrock;parser;model;gltf;glb</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
