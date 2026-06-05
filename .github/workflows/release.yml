@@ -1,0 +1,68 @@
+name: Release NuGet Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (overrides auto-detected)'
+        required: false
+        type: string
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Override version (manual dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+        run: |
+          echo "VERSION_OVERRIDE=${{ inputs.version }}" >> $GITHUB_ENV
+
+      - name: Extract version from release tag
+        if: ${{ github.event_name == 'release' }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          TAG="${TAG#v}"
+          echo "VERSION_OVERRIDE=$TAG" >> $GITHUB_ENV
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build
+
+      - name: Pack
+        run: |
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            dotnet pack --configuration Release --no-build -p:Version="$VERSION_OVERRIDE" -p:PackageVersion="$VERSION_OVERRIDE" -o ./artifacts
+          else
+            dotnet pack --configuration Release --no-build -o ./artifacts
+          fi
+
+      - name: Publish to NuGet.org
+        run: |
+          dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: ./artifacts/*.nupkg

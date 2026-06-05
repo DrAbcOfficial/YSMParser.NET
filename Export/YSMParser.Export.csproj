@@ -7,6 +7,8 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>YSMParser.Export</PackageId>
+    <Description>Standalone glTF 2.0 (.glb/.gltf) exporter from Minecraft Bedrock geometry JSON. Handles pivot/rotation conversion, cuboid triangulation, and UV mapping.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Core\YSMParser.Core.csproj" />

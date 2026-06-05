@@ -11,6 +11,14 @@ namespace YSMParser.Core.Utilities;
 /// </summary>
 public static class FpngEncoder
 {
+    /// <summary>
+    /// Encodes raw RGBA pixel data to a PNG byte array.
+    /// Returns an empty array if the input dimensions do not match the data length.
+    /// </summary>
+    /// <param name="rgba">Raw RGBA pixel data. Length must equal <c>width * height * 4</c>.</param>
+    /// <param name="width">Image width in pixels.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <returns>PNG-encoded byte array, or an empty array on mismatch.</returns>
     public static byte[] EncodeRgbaToPng(ReadOnlySpan<byte> rgba, int width, int height)
     {
         if (rgba.Length != width * height * 4)

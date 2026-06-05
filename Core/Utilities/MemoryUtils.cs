@@ -3,8 +3,20 @@ using System.Runtime.CompilerServices;
 
 namespace YSMParser.Core.Utilities;
 
+/// <summary>
+/// Low-level memory read/write utilities for endian-aware integer access.
+/// Supports byte, ushort, uint, and ulong in both little-endian and big-endian order.
+/// </summary>
 public static class MemoryUtils
 {
+    /// <summary>
+    /// Reads a value of type <typeparamref name="T"/> from the buffer in little-endian order.
+    /// Supports <see cref="byte"/>, <see cref="ushort"/>, <see cref="uint"/>, and <see cref="ulong"/>.
+    /// </summary>
+    /// <typeparam name="T">The unmanaged type to read.</typeparam>
+    /// <param name="buffer">The source byte buffer.</param>
+    /// <returns>The value read from the buffer.</returns>
+    /// <exception cref="NotSupportedException">Thrown for unsupported types.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T ReadLE<T>(ReadOnlySpan<byte> buffer) where T : unmanaged
     {
@@ -15,6 +27,14 @@ public static class MemoryUtils
         throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Reads a value of type <typeparamref name="T"/> from the buffer in big-endian order.
+    /// Supports <see cref="byte"/>, <see cref="ushort"/>, <see cref="uint"/>, and <see cref="ulong"/>.
+    /// </summary>
+    /// <typeparam name="T">The unmanaged type to read.</typeparam>
+    /// <param name="buffer">The source byte buffer.</param>
+    /// <returns>The value read from the buffer.</returns>
+    /// <exception cref="NotSupportedException">Thrown for unsupported types.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T ReadBE<T>(ReadOnlySpan<byte> buffer) where T : unmanaged
     {
@@ -25,6 +45,14 @@ public static class MemoryUtils
         throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Writes a value of type <typeparamref name="T"/> to the buffer in little-endian order.
+    /// Supports <see cref="byte"/>, <see cref="ushort"/>, <see cref="uint"/>, and <see cref="ulong"/>.
+    /// </summary>
+    /// <typeparam name="T">The unmanaged type to write.</typeparam>
+    /// <param name="buffer">The destination byte buffer.</param>
+    /// <param name="value">The value to write.</param>
+    /// <exception cref="NotSupportedException">Thrown for unsupported types.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void WriteLE<T>(Span<byte> buffer, T value) where T : unmanaged
     {
@@ -35,6 +63,14 @@ public static class MemoryUtils
         else throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Writes a value of type <typeparamref name="T"/> to the buffer in big-endian order.
+    /// Supports <see cref="byte"/>, <see cref="ushort"/>, <see cref="uint"/>, and <see cref="ulong"/>.
+    /// </summary>
+    /// <typeparam name="T">The unmanaged type to write.</typeparam>
+    /// <param name="buffer">The destination byte buffer.</param>
+    /// <param name="value">The value to write.</param>
+    /// <exception cref="NotSupportedException">Thrown for unsupported types.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void WriteBE<T>(Span<byte> buffer, T value) where T : unmanaged
     {
@@ -45,6 +81,12 @@ public static class MemoryUtils
         else throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Reads a 24-bit unsigned integer in little-endian order.
+    /// Used for reading the UTF-8 BOM prefix in YSM V3 files.
+    /// </summary>
+    /// <param name="buffer">The source byte buffer (must have at least 3 bytes).</param>
+    /// <returns>The 24-bit value as a <see cref="uint"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint ReadLE24(ReadOnlySpan<byte> buffer)
     {
@@ -53,6 +95,11 @@ public static class MemoryUtils
             | ((uint)buffer[2] << 16);
     }
 
+    /// <summary>
+    /// Writes a 24-bit unsigned integer in little-endian order.
+    /// </summary>
+    /// <param name="buffer">The destination byte buffer (must have at least 3 bytes).</param>
+    /// <param name="value">The 24-bit value to write (only the lower 24 bits are used).</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void WriteLE24(Span<byte> buffer, uint value)
     {

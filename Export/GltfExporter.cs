@@ -5,15 +5,26 @@ using System.Text.Json.Serialization;
 
 namespace YSMParser.Export;
 
+/// <summary>
+/// Specifies which planes to mirror when exporting geometry to glTF.
+/// </summary>
 [Flags]
 public enum MirrorPlane
 {
+    /// <summary>No mirroring.</summary>
     None = 0,
+    /// <summary>Mirror across the XY plane (negate Z).</summary>
     XY = 1,
+    /// <summary>Mirror across the XZ plane (negate Y).</summary>
     XZ = 2,
+    /// <summary>Mirror across the YZ plane (negate X).</summary>
     YZ = 4,
 }
 
+/// <summary>
+/// Exports Minecraft Bedrock geometry JSON to glTF 2.0 format (.glb binary or .gltf JSON).
+/// Handles coordinate system conversion, pivot/rotation translation, and cuboid-to-triangle mesh generation.
+/// </summary>
 public static class GltfExporter
 {
     private const int GlbMagic = 0x46546C67;
@@ -22,6 +33,15 @@ public static class GltfExporter
     private const int ChunkBin = 0x004E4942;
     private const float ExportScale = 1f / 16f;
 
+    /// <summary>
+    /// Exports Minecraft geometry JSON to a glTF 2.0 binary (.glb) byte array.
+    /// The texture is embedded directly in the buffer if provided.
+    /// </summary>
+    /// <param name="geometryJson">The Minecraft Bedrock geometry JSON bytes.</param>
+    /// <param name="texturePng">Optional PNG texture data to embed.</param>
+    /// <param name="mirror">Optional mirror plane flags.</param>
+    /// <returns>The complete .glb file as a byte array.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the geometry JSON cannot be deserialized.</exception>
     public static byte[] ToGlb(byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
     {
         var geom = DeserializeGeometry(geometryJson);
@@ -54,17 +74,41 @@ public static class GltfExporter
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Exports Minecraft geometry JSON to a glTF 2.0 binary (.glb) as a <see cref="MemoryStream"/>.
+    /// </summary>
+    /// <param name="geometryJson">The Minecraft Bedrock geometry JSON bytes.</param>
+    /// <param name="texturePng">Optional PNG texture data to embed.</param>
+    /// <param name="mirror">Optional mirror plane flags.</param>
+    /// <returns>A <see cref="MemoryStream"/> containing the .glb file data.</returns>
     public static MemoryStream ToGlbStream(byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
     {
         return new MemoryStream(ToGlb(geometryJson, texturePng, mirror));
     }
 
+    /// <summary>
+    /// Exports Minecraft geometry JSON to a glTF 2.0 binary (.glb) file on disk.
+    /// </summary>
+    /// <param name="outputPath">The output file path (should end with .glb).</param>
+    /// <param name="geometryJson">The Minecraft Bedrock geometry JSON bytes.</param>
+    /// <param name="texturePng">Optional PNG texture data to embed.</param>
+    /// <param name="mirror">Optional mirror plane flags.</param>
     public static void ToGlb(string outputPath, byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
     {
         var data = ToGlb(geometryJson, texturePng, mirror);
         File.WriteAllBytes(outputPath, data);
     }
 
+    /// <summary>
+    /// Exports Minecraft geometry JSON to glTF 2.0 separate files (.gltf + .bin + optional .png texture).
+    /// All output files share the same base name.
+    /// </summary>
+    /// <param name="outputDir">The output directory path.</param>
+    /// <param name="baseName">The base file name (without extension) for the output files.</param>
+    /// <param name="geometryJson">The Minecraft Bedrock geometry JSON bytes.</param>
+    /// <param name="texturePng">Optional PNG texture data to write as a separate file.</param>
+    /// <param name="mirror">Optional mirror plane flags.</param>
+    /// <exception cref="InvalidOperationException">Thrown if the geometry JSON cannot be deserialized.</exception>
     public static void ToGltf(string outputDir, string baseName, byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
     {
         Directory.CreateDirectory(outputDir);

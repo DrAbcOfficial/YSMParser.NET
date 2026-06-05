@@ -127,6 +127,12 @@ public static class CityHash64
         return b + x;
     }
 
+    /// <summary>
+    /// Computes the CityHash64 hash of the given data with YSM-modified constants.
+    /// </summary>
+    /// <param name="s">The data to hash.</param>
+    /// <param name="len">The length of the data in bytes.</param>
+    /// <returns>The 64-bit hash value.</returns>
     public static ulong Compute(ReadOnlySpan<byte> s, int len)
     {
         if (len <= 32)
@@ -167,9 +173,24 @@ public static class CityHash64
                          HashLen16(v.Second, w.Second) + xx);
     }
 
+    /// <summary>
+    /// Computes CityHash64 with a single seed value.
+    /// </summary>
+    /// <param name="s">The data to hash.</param>
+    /// <param name="len">The length of the data in bytes.</param>
+    /// <param name="seed">The seed value.</param>
+    /// <returns>The 64-bit hash value.</returns>
     public static ulong CityHash64WithSeed(ReadOnlySpan<byte> s, int len, ulong seed) =>
         CityHash64WithSeeds(s, len, k2, seed);
 
+    /// <summary>
+    /// Computes CityHash64 with two seed values.
+    /// </summary>
+    /// <param name="s">The data to hash.</param>
+    /// <param name="len">The length of the data in bytes.</param>
+    /// <param name="seed0">The first seed value.</param>
+    /// <param name="seed1">The second seed value.</param>
+    /// <returns>The 64-bit hash value.</returns>
     public static ulong CityHash64WithSeeds(ReadOnlySpan<byte> s, int len, ulong seed0, ulong seed1) =>
         HashLen16(Compute(s, len) - seed0, seed1);
 }

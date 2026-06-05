@@ -36,6 +36,20 @@ public static class YsmZstd
         return size + windowDescSize + dictIdSize + fcsSize;
     }
 
+    /// <summary>
+    /// Reverts YSM obfuscation on a Zstd-compressed frame, restoring it to a standard
+    /// Zstd frame that can be decoded by a normal Zstd decompressor. Performs in-place
+    /// modifications: clears the checksum bit in the frame header descriptor and
+    /// recalculates block headers using the YSM-specific obfuscation key (<c>0xD4E9</c>).
+    /// </summary>
+    /// <param name="compressedData">The YSM-obfuscated Zstd data.</param>
+    /// <returns>A copy of the data with obfuscation removed.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown if the data is too short or does not contain a valid Zstd magic number.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if an unknown block type is encountered.
+    /// </exception>
     public static byte[] Wash(ReadOnlySpan<byte> compressedData)
     {
         if (compressedData.Length < 5)

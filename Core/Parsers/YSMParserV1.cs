@@ -4,16 +4,24 @@ using YSMParser.Core.Utilities;
 
 namespace YSMParser.Core.Parsers;
 
+/// <summary>
+/// YSM format V1 parser. Uses AES-CBC decryption with per-file keys and zlib decompression.
+/// Each file entry contains a filename, data length, AES key, IV, and encrypted payload.
+/// </summary>
+/// <param name="buffer">The raw YSM file bytes.</param>
 public sealed class YSMParserV1(byte[] buffer) : YSMParser
 {
     private readonly byte[] _buffer = buffer;
     private readonly byte[] _key = new byte[16];
     private readonly Dictionary<string, byte[]> _resources = [];
 
+    /// <inheritdoc />
     public override int GetYSGPVersion() => 1;
 
+    /// <inheritdoc />
     public override byte[] GetDecryptedData() => [];
 
+    /// <inheritdoc />
     public override void Parse()
     {
         if (_buffer.Length == 0) return;
@@ -50,6 +58,7 @@ public sealed class YSMParserV1(byte[] buffer) : YSMParser
         }
     }
 
+    /// <inheritdoc />
     public override void SaveToDirectory(string outputDirectory)
     {
         Directory.CreateDirectory(outputDirectory);
@@ -65,6 +74,7 @@ public sealed class YSMParserV1(byte[] buffer) : YSMParser
         }
     }
 
+    /// <inheritdoc />
     public override void PrintInfo(TextWriter output)
     {
         output.WriteLine($"  Version:      1 (AES-CBC + zlib)");
@@ -89,6 +99,7 @@ public sealed class YSMParserV1(byte[] buffer) : YSMParser
         }
     }
 
+    /// <inheritdoc />
     public override YsmResourceData GetResources()
     {
         var models = new List<YsmResourceEntry>();

@@ -11,10 +11,21 @@ namespace YSMParser.Core.Crypto;
 /// </summary>
 public sealed class XChaChaCtx
 {
+    /// <summary>
+    /// The 16-word (64-byte) cipher state matrix.
+    /// </summary>
     public readonly uint[] Input = new uint[16];
+
+    /// <summary>
+    /// The number of ChaCha rounds to perform. YSM uses dynamic round counts
+    /// derived from hashes.
+    /// </summary>
     public uint Rounds;
 }
 
+/// <summary>
+/// Static methods for XChaCha20 encryption, decryption, and key setup.
+/// </summary>
 public static class XChaCha20
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -26,6 +37,14 @@ public static class XChaCha20
         c += d; b ^= c; b = BitOperations.RotateLeft(b, 7);
     }
 
+    /// <summary>
+    /// Performs the HChaCha20 half-round function used to derive a subkey from
+    /// the main key and the first 16 bytes of the IV.
+    /// </summary>
+    /// <param name="output">A 32-byte span to receive the derived subkey.</param>
+    /// <param name="input">The first 16 bytes of the IV.</param>
+    /// <param name="key">The 32-byte encryption key.</param>
+    /// <param name="rounds">The number of ChaCha rounds to perform.</param>
     public static void HChaCha20(Span<byte> output, ReadOnlySpan<byte> input, ReadOnlySpan<byte> key, uint rounds)
     {
         uint x0 = 0x61707865, x1 = 0x3320646e, x2 = 0x79622d32, x3 = 0x6b206574;
@@ -64,6 +83,13 @@ public static class XChaCha20
         BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(28, 4), x15);
     }
 
+    /// <summary>
+    /// Initializes an <see cref="XChaChaCtx"/> with the given key and IV,
+    /// deriving the internal state via <see cref="HChaCha20"/>.
+    /// </summary>
+    /// <param name="ctx">The context to initialize.</param>
+    /// <param name="key">The 32-byte encryption key.</param>
+    /// <param name="iv">The 24-byte nonce (IV).</param>
     public static void KeySetup(XChaChaCtx ctx, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
     {
         Span<byte> k2 = stackalloc byte[32];
@@ -152,6 +178,14 @@ public static class XChaCha20
         BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(60, 4), x15);
     }
 
+    /// <summary>
+    /// Encrypts or decrypts data using the XChaCha20 stream cipher.
+    /// Processes the input in 64-byte blocks with an incrementing counter.
+    /// </summary>
+    /// <param name="ctx">The initialized XChaCha20 context.</param>
+    /// <param name="input">The plaintext (for encryption) or ciphertext (for decryption).</param>
+    /// <param name="output">The output buffer, which may alias <paramref name="input"/>.</param>
+    /// <param name="bytes">The number of bytes to process.</param>
     public static void EncryptBytes(XChaChaCtx ctx, ReadOnlySpan<byte> input, Span<byte> output, uint bytes)
     {
         if (bytes == 0) return;
@@ -203,6 +237,14 @@ public static class XChaCha20
         }
     }
 
+    /// <summary>
+    /// Decrypts data using XChaCha20. This is identical to encryption since
+    /// XChaCha20 is a symmetric stream cipher.
+    /// </summary>
+    /// <param name="ctx">The initialized XChaCha20 context.</param>
+    /// <param name="input">The ciphertext to decrypt.</param>
+    /// <param name="output">The output buffer for plaintext.</param>
+    /// <param name="bytes">The number of bytes to process.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void DecryptBytes(XChaChaCtx ctx, ReadOnlySpan<byte> input, Span<byte> output, uint bytes)
     {

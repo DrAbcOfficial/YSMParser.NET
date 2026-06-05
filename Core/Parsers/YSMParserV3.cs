@@ -8,6 +8,12 @@ using YSMParser.Core.Utilities;
 
 namespace YSMParser.Core.Parsers;
 
+/// <summary>
+/// YSM format V3 parser. Uses XChaCha20 with dynamic rounds, MT19937 XOR obfuscation,
+/// and Zstd compression. Supports format upgrades 1 through 32+ with structured
+/// directory output (models, textures, animations, controller, sounds, functions, lang).
+/// </summary>
+/// <param name="buffer">The raw YSM file bytes.</param>
 public sealed class YSMParserV3(byte[] buffer) : YSMParser
 {
     private readonly byte[] _buffer = buffer;
@@ -35,9 +41,12 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     private byte[] _infoJsonFile = [];
     private byte[] _ysmJsonFile = [];
 
+    /// <inheritdoc />
     public override int GetYSGPVersion() => 3;
+    /// <inheritdoc />
     public override byte[] GetDecryptedData() => _decompressed;
 
+    /// <inheritdoc />
     public override void Parse()
     {
         _binaryData = [];
@@ -469,16 +478,27 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         public List<ParsedBone> Bones = [];
     }
 
+    /// <summary>
+    /// Represents a single face of a cube in the parsed model geometry.
+    /// </summary>
     public struct Face
     {
+        /// <summary>The face normal vector.</summary>
         public Vector3D Normal;
+        /// <summary>The four vertices of the face.</summary>
         public Vertex V0, V1, V2, V3;
     }
 
+    /// <summary>
+    /// Represents a single vertex with position and UV texture coordinates.
+    /// </summary>
     public struct Vertex
     {
+        /// <summary>The 3D position of the vertex.</summary>
         public Vector3D Vec;
+        /// <summary>The U (horizontal) texture coordinate.</summary>
         public float U;
+        /// <summary>The V (vertical) texture coordinate.</summary>
         public float V;
     }
 
@@ -2114,6 +2134,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         return reader.ReadByteSequence();
     }
 
+    /// <inheritdoc />
     public override void PrintInfo(TextWriter output)
     {
         output.WriteLine($"  Version:      3");
@@ -2186,6 +2207,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         output.WriteLine($"    {label}: {value}");
     }
 
+    /// <inheritdoc />
     public override void SaveToDirectory(string outputDirectory)
     {
         Directory.CreateDirectory(outputDirectory);
@@ -2276,6 +2298,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         }
     }
 
+    /// <inheritdoc />
     public override YsmResourceData GetResources()
     {
         static List<YsmResourceEntry> Convert(List<(string Name, byte[] Data)> source)

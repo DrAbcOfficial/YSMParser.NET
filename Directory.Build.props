@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <Version>0.3.5</Version>
+    <Authors>DrAbc</Authors>
+    <Description>YSMParser.Net - A pure .NET parser for .ysm Minecraft player model files</Description>
+    <Copyright>Copyright (c) DrAbc</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/DrAbcOfficial/YSMParser.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DrAbcOfficial/YSMParser.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>ysm;minecraft;bedrock;parser;model;gltf;glb</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
