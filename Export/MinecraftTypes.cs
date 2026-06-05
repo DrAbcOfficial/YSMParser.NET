@@ -117,7 +117,7 @@ internal sealed class MinecraftCubeUVConverter : JsonConverter<MinecraftCubeUV>
                 {
                     var propName = reader.GetString()?.ToLowerInvariant();
                     if (!reader.Read()) break;
-                    var faceUV = JsonSerializer.Deserialize<MinecraftCubeFaceUV>(ref reader, options);
+                    var faceUV = JsonSerializer.Deserialize(ref reader, SerializationContext.Default.MinecraftCubeFaceUV);
 
                     switch (propName)
                     {
@@ -145,12 +145,12 @@ internal sealed class MinecraftCubeUVConverter : JsonConverter<MinecraftCubeUV>
             return;
         }
         writer.WriteStartObject();
-        if (value.North != null) { writer.WritePropertyName("north"); JsonSerializer.Serialize(writer, value.North, options); }
-        if (value.South != null) { writer.WritePropertyName("south"); JsonSerializer.Serialize(writer, value.South, options); }
-        if (value.East  != null) { writer.WritePropertyName("east");  JsonSerializer.Serialize(writer, value.East,  options); }
-        if (value.West  != null) { writer.WritePropertyName("west");  JsonSerializer.Serialize(writer, value.West,  options); }
-        if (value.Up    != null) { writer.WritePropertyName("up");    JsonSerializer.Serialize(writer, value.Up,    options); }
-        if (value.Down  != null) { writer.WritePropertyName("down");  JsonSerializer.Serialize(writer, value.Down,  options); }
+        if (value.North != null) { writer.WritePropertyName("north"); JsonSerializer.Serialize(writer, value.North, SerializationContext.Default.MinecraftCubeFaceUV); }
+        if (value.South != null) { writer.WritePropertyName("south"); JsonSerializer.Serialize(writer, value.South, SerializationContext.Default.MinecraftCubeFaceUV); }
+        if (value.East  != null) { writer.WritePropertyName("east");  JsonSerializer.Serialize(writer, value.East,  SerializationContext.Default.MinecraftCubeFaceUV); }
+        if (value.West  != null) { writer.WritePropertyName("west");  JsonSerializer.Serialize(writer, value.West,  SerializationContext.Default.MinecraftCubeFaceUV); }
+        if (value.Up    != null) { writer.WritePropertyName("up");    JsonSerializer.Serialize(writer, value.Up,    SerializationContext.Default.MinecraftCubeFaceUV); }
+        if (value.Down  != null) { writer.WritePropertyName("down");  JsonSerializer.Serialize(writer, value.Down,  SerializationContext.Default.MinecraftCubeFaceUV); }
         writer.WriteEndObject();
     }
 }

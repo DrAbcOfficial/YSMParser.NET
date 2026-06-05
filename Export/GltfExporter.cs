@@ -22,17 +22,6 @@ public static class GltfExporter
     private const int ChunkBin = 0x004E4942;
     private const float ExportScale = 1f / 16f;
 
-    private static readonly JsonSerializerOptions _jsonOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = true,
-    };
-
-    private static readonly JsonSerializerOptions _deserializeOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     public static byte[] ToGlb(byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
     {
         var geom = DeserializeGeometry(geometryJson);
@@ -43,7 +32,7 @@ public static class GltfExporter
 
         BuildGltfModel(model, writer, texturePng, mirror, out var root, embedTextureInBuffer: true, textureMimeType: "image/png");
 
-        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(root, _jsonOptions);
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(root, SerializationContext.Default.GltfRoot);
         var paddedJson = PadTo4Bytes(jsonBytes);
 
         uint totalLength = (uint)(12 + 8 + paddedJson.Length + 8 + binStream.Length);
@@ -103,7 +92,7 @@ public static class GltfExporter
         if (root.Buffers.Count > 0)
             root.Buffers[0].Uri = binFileName;
 
-        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(root, _jsonOptions);
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(root, SerializationContext.Default.GltfRoot);
         File.WriteAllBytes(Path.Combine(outputDir, baseName + ".gltf"), jsonBytes);
     }
 
@@ -522,7 +511,7 @@ public static class GltfExporter
 
     private static MinecraftGeometryFile DeserializeGeometry(byte[] geometryJson)
     {
-        return JsonSerializer.Deserialize<MinecraftGeometryFile>(geometryJson, _deserializeOptions)
+        return JsonSerializer.Deserialize(geometryJson, SerializationContext.Default.MinecraftGeometryFile)
             ?? throw new InvalidOperationException("Failed to deserialize geometry JSON.");
     }
 

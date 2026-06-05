@@ -1127,7 +1127,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 foreach (var (time, list) in tl.Groups)
                 {
                     var arr = new JsonArray();
-                    foreach (var s in list) arr.Add(s);
+                    foreach (var s in list) arr.Add((JsonNode)JsonValue.Create(s));
                     tlObj[FormatTime(time)] = arr;
                 }
                 animObj["timeline"] = tlObj;
@@ -1164,10 +1164,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         string infoTips = reader.ReadString();
         uint extraAnims = (uint)reader.ReadVarint();
         var extraNames = new JsonArray();
-        for (uint i = 0; i < extraAnims; i++) extraNames.Add(reader.ReadString());
+        for (uint i = 0; i < extraAnims; i++) extraNames.Add((JsonNode)JsonValue.Create(reader.ReadString()));
         uint authorsCount = (uint)reader.ReadVarint();
         var authors = new JsonArray();
-        for (uint i = 0; i < authorsCount; i++) authors.Add(reader.ReadString());
+        for (uint i = 0; i < authorsCount; i++) authors.Add((JsonNode)JsonValue.Create(reader.ReadString()));
         string infoLicense = reader.ReadString();
         bool infoFree = reader.ReadVarint() != 0;
 
@@ -1229,7 +1229,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 }
                 authorObj["comment"] = reader.ReadString();
                 authorObj["avatar"] = "avatar/" + SanitizeWindowsFilename(authorName + ".png");
-                authors.Add(authorObj);
+                authors.Add((JsonNode)authorObj);
             }
             metadata["authors"] = authors;
         }
@@ -1293,11 +1293,11 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                                 for (uint l = 0; l < labels; l++) labelsObj[reader.ReadString()] = reader.ReadString();
                                 form["labels"] = labelsObj;
                             }
-                            cfg.Add(form);
+                            cfg.Add((JsonNode)form);
                         }
                         btn["config_forms"] = cfg;
                     }
-                    arr.Add(btn);
+                    arr.Add((JsonNode)btn);
                 }
                 properties["extra_animation_buttons"] = arr;
             }
@@ -1311,7 +1311,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 var exObj = new JsonObject();
                 for (uint k = 0; k < extras; k++) exObj[reader.ReadString()] = reader.ReadString();
                 sig["extra_animation"] = exObj;
-                classify.Add(sig);
+                classify.Add((JsonNode)sig);
             }
             properties["extra_animation_classify"] = classify;
         }
@@ -1355,7 +1355,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     };
                     _ = reader.ReadVarint();
                     _ = reader.ReadVarint();
-                    arr.Add(info);
+                    arr.Add((JsonNode)info);
                 }
                 metadata["avatars"] = arr;
             }
@@ -1426,7 +1426,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         {
             if (name.Contains('/')) continue;
             if (subEntityModels.Contains(name)) continue;
-            ac1.Add("controller/" + SanitizeWindowsFilename(name + ".json"));
+            ac1.Add((JsonNode)JsonValue.Create("controller/" + SanitizeWindowsFilename(name + ".json")));
         }
         player["animation_controllers"] = ac1;
 
@@ -1447,7 +1447,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 if (Name == expectedNormal) texObj["normal"] = "textures/" + SanitizeWindowsFilename(expectedNormal + ".png");
                 else if (Name == expectedSpecular) texObj["specular"] = "textures/" + SanitizeWindowsFilename(expectedSpecular + ".png");
             }
-            playerTex.Add(texObj);
+            playerTex.Add((JsonNode)texObj);
         }
         if (playerTex.Count > 0) player["texture"] = playerTex;
 
@@ -1616,8 +1616,8 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     {
                         string ak = reader.ReadString();
                         string av = reader.ReadString();
-                        if (string.IsNullOrEmpty(av)) arr.Add(ak);
-                        else arr.Add(new JsonObject { [ak] = av });
+                        if (string.IsNullOrEmpty(av)) arr.Add((JsonNode)JsonValue.Create(ak));
+                        else arr.Add((JsonNode)new JsonObject { [ak] = av });
                     }
                     stateObj["animations"] = arr;
                 }
@@ -1632,7 +1632,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                         {
                             [reader.ReadString()] = reader.ReadString()
                         };
-                        arr.Add(item);
+                        arr.Add((JsonNode)item);
                     }
                     stateObj["transitions"] = arr;
                 }
@@ -1641,7 +1641,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 if (onEntryCount > 0)
                 {
                     var arr = new JsonArray();
-                    for (uint j = 0; j < onEntryCount; j++) arr.Add(reader.ReadString());
+                    for (uint j = 0; j < onEntryCount; j++) arr.Add((JsonNode)JsonValue.Create(reader.ReadString()));
                     stateObj["on_entry"] = arr;
                 }
 
@@ -1649,7 +1649,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 if (onExitCount > 0)
                 {
                     var arr = new JsonArray();
-                    for (uint j = 0; j < onExitCount; j++) arr.Add(reader.ReadString());
+                    for (uint j = 0; j < onExitCount; j++) arr.Add((JsonNode)JsonValue.Create(reader.ReadString()));
                     stateObj["on_exit"] = arr;
                 }
 
@@ -1686,7 +1686,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                         var arr = new JsonArray();
                         for (uint j = 0; j < soundEffects; j++)
                         {
-                            arr.Add(new JsonObject { ["effect"] = reader.ReadString() });
+                            arr.Add((JsonNode)new JsonObject { ["effect"] = reader.ReadString() });
                         }
                         stateObj["sound_effects"] = arr;
                     }
