@@ -142,14 +142,15 @@ public static class GltfExporter
 
             if (bone.Rotation is { Count: >= 3 })
             {
-                var euler = new Vector3(bone.Rotation[0], bone.Rotation[1], bone.Rotation[2]);
+                var euler = ConvertBedrockRotation(bone.Rotation);
                 var q = CreateBlockbenchQuaternion(euler);
                 node.Rotation = [q.X, q.Y, q.Z, q.W];
             }
 
             if (bone.Pivot is { Count: >= 3 })
             {
-                node.Translation = [bone.Pivot[0] * ExportScale, bone.Pivot[1] * ExportScale, bone.Pivot[2] * ExportScale];
+                var pivot = ConvertBedrockPivot(bone.Pivot);
+                node.Translation = [pivot.X * ExportScale, pivot.Y * ExportScale, pivot.Z * ExportScale];
             }
 
             nodes.Add(node);
@@ -163,16 +164,12 @@ public static class GltfExporter
                 nodes[parentIdx].Children ??= [];
                 nodes[parentIdx].Children!.Add(childIdx);
 
-                Quaternion parentRot = Quaternion.Identity;
                 if (bone.Pivot is { Count: >= 3 } &&
                     geometry.Bones.FirstOrDefault(b => b.Name == bone.Parent) is { Pivot.Count: >= 3 } parentBone)
                 {
-                    if (parentBone.Rotation is { Count: >= 3 })
-                        parentRot = CreateBlockbenchQuaternion(new Vector3(parentBone.Rotation[0], parentBone.Rotation[1], parentBone.Rotation[2]));
-
-                    var parentPivot = new Vector3(parentBone.Pivot[0], parentBone.Pivot[1], parentBone.Pivot[2]);
-                    var childPivot = new Vector3(bone.Pivot[0], bone.Pivot[1], bone.Pivot[2]);
-                    var relativeOffset = Vector3.Transform(childPivot - parentPivot, Quaternion.Conjugate(parentRot));
+                    var parentPivot = ConvertBedrockPivot(parentBone.Pivot);
+                    var childPivot = ConvertBedrockPivot(bone.Pivot);
+                    var relativeOffset = childPivot - parentPivot;
                     nodes[childIdx].Translation = [relativeOffset.X * ExportScale, relativeOffset.Y * ExportScale, relativeOffset.Z * ExportScale];
                 }
             }
@@ -183,7 +180,7 @@ public static class GltfExporter
         foreach (var bone in geometry.Bones)
         {
             var localRot = bone.Rotation is { Count: >= 3 }
-                ? CreateBlockbenchQuaternion(new Vector3(bone.Rotation[0], bone.Rotation[1], bone.Rotation[2]))
+                ? CreateBlockbenchQuaternion(ConvertBedrockRotation(bone.Rotation))
                 : Quaternion.Identity;
             var localTrans = nodes[boneNodeIndex[bone.Name]].Translation is { Length: >= 3 } t
                 ? new Vector3(t[0], t[1], t[2])
@@ -192,7 +189,7 @@ public static class GltfExporter
             if (bone.Parent is null)
             {
                 boneWorldPos[bone.Name] = new Vector3(
-                    bone.Pivot is { Count: >= 3 } ? bone.Pivot[0] : 0,
+                    bone.Pivot is { Count: >= 3 } ? -bone.Pivot[0] : 0,
                     bone.Pivot is { Count: >= 3 } ? bone.Pivot[1] : 0,
                     bone.Pivot is { Count: >= 3 } ? bone.Pivot[2] : 0);
                 boneWorldRot[bone.Name] = localRot;
@@ -236,25 +233,33 @@ public static class GltfExporter
             if (bone.Cubes is null or { Count: 0 }) continue;
 
             int boneIdx = boneNodeIndex[bone.Name];
-            var bwPos = boneWorldPos[bone.Name];
-            var bwRot = boneWorldRot[bone.Name];
-            var bwRotInv = Quaternion.Inverse(bwRot);
+            var bonePivot = bone.Pivot is { Count: >= 3 }
+                ? ConvertBedrockPivot(bone.Pivot)
+                : Vector3.Zero;
 
             foreach (var cube in bone.Cubes)
             {
                 if (cube.Origin is not { Count: >= 3 } || cube.Size is not { Count: >= 3 })
                     continue;
 
-                float ox = cube.Origin[0], oy = cube.Origin[1], oz = cube.Origin[2];
-                float sx = cube.Size[0], sy = cube.Size[1], sz = cube.Size[2];
+                var (from, to) = ConvertBedrockCubeBounds(cube);
+                var cubePivot = ConvertBedrockCubePivot(cube);
                 float inflate = cube.Inflate;
 
-                float lx = -inflate * ExportScale;
-                float ly = -inflate * ExportScale;
-                float lz = -inflate * ExportScale;
-                float hx = (sx + inflate) * ExportScale;
-                float hy = (sy + inflate) * ExportScale;
-                float hz = (sz + inflate) * ExportScale;
+                var center = (from + to) * 0.5f;
+                var halfSize = (to - from) * 0.5f;
+                var min = center - new Vector3(halfSize.X + inflate, halfSize.Y + inflate, halfSize.Z + inflate) - cubePivot;
+                var max = center + new Vector3(halfSize.X + inflate, halfSize.Y + inflate, halfSize.Z + inflate) - cubePivot;
+                if (min.X == max.X) max.X += 0.001f;
+                if (min.Y == max.Y) max.Y += 0.001f;
+                if (min.Z == max.Z) max.Z += 0.001f;
+
+                float lx = min.X * ExportScale;
+                float ly = min.Y * ExportScale;
+                float lz = min.Z * ExportScale;
+                float hx = max.X * ExportScale;
+                float hy = max.Y * ExportScale;
+                float hz = max.Z * ExportScale;
 
                 var (posBuf, normBuf, uvBuf, idxBuf) = BuildCubeMeshData(
                     cube, textureWidth, textureHeight, lx, ly, lz, hx, hy, hz);
@@ -348,14 +353,12 @@ public static class GltfExporter
                     Mesh = meshIdx,
                 };
 
-                var cubeOriginVec = new Vector3(ox, oy, oz);
-                var txWorld = cubeOriginVec - bwPos;
-                var txLocal = Vector3.Transform(txWorld, bwRotInv);
+                var txLocal = cubePivot - bonePivot;
                 cubeNode.Translation = [txLocal.X * ExportScale, txLocal.Y * ExportScale, txLocal.Z * ExportScale];
 
                 if (cube.Rotation is { Count: >= 3 })
                 {
-                    var euler = new Vector3(cube.Rotation[0], cube.Rotation[1], cube.Rotation[2]);
+                    var euler = ConvertBedrockRotation(cube.Rotation);
                     var q = CreateBlockbenchQuaternion(euler);
                     cubeNode.Rotation = [q.X, q.Y, q.Z, q.W];
                 }
@@ -511,6 +514,32 @@ public static class GltfExporter
     {
         return JsonSerializer.Deserialize<MinecraftGeometryFile>(geometryJson, _deserializeOptions)
             ?? throw new InvalidOperationException("Failed to deserialize geometry JSON.");
+    }
+
+    private static Vector3 ConvertBedrockPivot(List<float> pivot)
+    {
+        return new Vector3(-pivot[0], pivot[1], pivot[2]);
+    }
+
+    private static Vector3 ConvertBedrockRotation(List<float> rotation)
+    {
+        return new Vector3(-rotation[0], -rotation[1], rotation[2]);
+    }
+
+    private static Vector3 ConvertBedrockCubePivot(MinecraftCube cube)
+    {
+        return cube.Pivot is { Count: >= 3 }
+            ? ConvertBedrockPivot(cube.Pivot)
+            : Vector3.Zero;
+    }
+
+    private static (Vector3 From, Vector3 To) ConvertBedrockCubeBounds(MinecraftCube cube)
+    {
+        var origin = cube.Origin!;
+        var size = cube.Size!;
+        var from = new Vector3(-(origin[0] + size[0]), origin[1], origin[2]);
+        var to = new Vector3(from.X + size[0], from.Y + size[1], from.Z + size[2]);
+        return (from, to);
     }
 
     internal static Quaternion CreateBlockbenchQuaternion(Vector3 eulerDegrees)
