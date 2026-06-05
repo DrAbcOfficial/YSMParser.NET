@@ -1,0 +1,603 @@
+using System.Numerics;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace YSMParser.Export;
+
+[Flags]
+public enum MirrorPlane
+{
+    None = 0,
+    XY = 1,
+    XZ = 2,
+    YZ = 4,
+}
+
+public static class GltfExporter
+{
+    private const int GlbMagic = 0x46546C67;
+    private const int GlbVersion = 2;
+    private const int ChunkJson = 0x4E4F534A;
+    private const int ChunkBin = 0x004E4942;
+
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = true,
+    };
+
+    private static readonly JsonSerializerOptions _deserializeOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
+    public static byte[] ToGlb(byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
+    {
+        var geom = DeserializeGeometry(geometryJson);
+        var model = geom.Geometries[0];
+
+        using var binStream = new MemoryStream();
+        var writer = new GltfBufferWriter(binStream);
+
+        BuildGltfModel(model, writer, texturePng, mirror, out var root, embedTextureInBuffer: true, textureMimeType: "image/png");
+
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(root, _jsonOptions);
+        var paddedJson = PadTo4Bytes(jsonBytes);
+
+        uint totalLength = (uint)(12 + 8 + paddedJson.Length + 8 + binStream.Length);
+
+        using var ms = new MemoryStream((int)totalLength);
+        WriteU32LE(ms, (uint)GlbMagic);
+        WriteU32LE(ms, GlbVersion);
+        WriteU32LE(ms, totalLength);
+
+        WriteU32LE(ms, (uint)paddedJson.Length);
+        WriteU32LE(ms, (uint)ChunkJson);
+        ms.Write(paddedJson, 0, paddedJson.Length);
+
+        WriteU32LE(ms, (uint)binStream.Length);
+        WriteU32LE(ms, (uint)ChunkBin);
+        binStream.Position = 0;
+        binStream.CopyTo(ms);
+
+        return ms.ToArray();
+    }
+
+    public static void ToGlb(string outputPath, byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
+    {
+        var data = ToGlb(geometryJson, texturePng, mirror);
+        File.WriteAllBytes(outputPath, data);
+    }
+
+    public static void ToGltf(string outputDir, string baseName, byte[] geometryJson, byte[]? texturePng, MirrorPlane mirror = MirrorPlane.None)
+    {
+        Directory.CreateDirectory(outputDir);
+        var geom = DeserializeGeometry(geometryJson);
+        var model = geom.Geometries[0];
+
+        using var binStream = new MemoryStream();
+        var writer = new GltfBufferWriter(binStream);
+        var binFileName = baseName + ".bin";
+
+        BuildGltfModel(model, writer, texturePng, mirror, out var root, embedTextureInBuffer: false, textureMimeType: null);
+
+        if (texturePng is { Length: > 0 })
+        {
+            var texFileName = baseName + ".png";
+            File.WriteAllBytes(Path.Combine(outputDir, texFileName), texturePng);
+            root.Images = [new GltfImage { Uri = texFileName }];
+            root.Textures = [new GltfTexture { Source = 0 }];
+            root.Samplers = [new GltfSampler()];
+            root.Materials![0].PbrMetallicRoughness!.BaseColorTexture = new GltfTextureInfo { Index = 0 };
+        }
+
+        File.WriteAllBytes(Path.Combine(outputDir, binFileName), binStream.ToArray());
+
+        if (root.Buffers.Count > 0)
+            root.Buffers[0].Uri = binFileName;
+
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(root, _jsonOptions);
+        File.WriteAllBytes(Path.Combine(outputDir, baseName + ".gltf"), jsonBytes);
+    }
+
+    private static void BuildGltfModel(
+        MinecraftGeometry geometry,
+        GltfBufferWriter writer,
+        byte[]? texturePng,
+        MirrorPlane mirror,
+        out GltfRoot root,
+        bool embedTextureInBuffer,
+        string? textureMimeType)
+    {
+        root = new GltfRoot();
+        var nodes = new List<GltfNode>();
+        var meshes = new List<GltfMesh>();
+        var accessors = new List<GltfAccessor>();
+        var bufferViews = new List<GltfBufferView>();
+        var materials = new List<GltfMaterial>();
+        var boneNodeIndex = new Dictionary<string, int>();
+
+        int textureWidth = (int)(geometry.Description.TextureWidth > 0 ? geometry.Description.TextureWidth : 64);
+        int textureHeight = (int)(geometry.Description.TextureHeight > 0 ? geometry.Description.TextureHeight : 64);
+
+        int imageBufferView = -1;
+        if (texturePng is { Length: > 0 } && embedTextureInBuffer)
+        {
+            imageBufferView = writer.WriteAlignedBytes(texturePng, 4);
+            bufferViews.Add(new GltfBufferView
+            {
+                Buffer = 0,
+                ByteOffset = imageBufferView,
+                ByteLength = texturePng.Length,
+            });
+        }
+
+        foreach (var bone in geometry.Bones)
+        {
+            int nodeIdx = nodes.Count;
+            var node = new GltfNode { Name = bone.Name };
+            boneNodeIndex[bone.Name] = nodeIdx;
+
+            if (bone.Rotation is { Count: >= 3 })
+            {
+                var euler = new Vector3(bone.Rotation[0], bone.Rotation[1], bone.Rotation[2]);
+                var q = CreateBlockbenchQuaternion(euler);
+                node.Rotation = [q.X, q.Y, q.Z, q.W];
+            }
+
+            if (bone.Pivot is { Count: >= 3 })
+            {
+                node.Translation = [bone.Pivot[0], bone.Pivot[1], bone.Pivot[2]];
+            }
+
+            nodes.Add(node);
+        }
+
+        foreach (var bone in geometry.Bones)
+        {
+            if (bone.Parent is not null && boneNodeIndex.TryGetValue(bone.Parent, out var parentIdx))
+            {
+                var childIdx = boneNodeIndex[bone.Name];
+                nodes[parentIdx].Children ??= [];
+                nodes[parentIdx].Children!.Add(childIdx);
+
+                Quaternion parentRot = Quaternion.Identity;
+                if (bone.Pivot is { Count: >= 3 } &&
+                    geometry.Bones.FirstOrDefault(b => b.Name == bone.Parent) is { Pivot.Count: >= 3 } parentBone)
+                {
+                    if (parentBone.Rotation is { Count: >= 3 })
+                        parentRot = CreateBlockbenchQuaternion(new Vector3(parentBone.Rotation[0], parentBone.Rotation[1], parentBone.Rotation[2]));
+
+                    var parentPivot = new Vector3(parentBone.Pivot[0], parentBone.Pivot[1], parentBone.Pivot[2]);
+                    var childPivot = new Vector3(bone.Pivot[0], bone.Pivot[1], bone.Pivot[2]);
+                    var relativeOffset = Vector3.Transform(childPivot - parentPivot, Quaternion.Conjugate(parentRot));
+                    nodes[childIdx].Translation = [relativeOffset.X, relativeOffset.Y, relativeOffset.Z];
+                }
+            }
+        }
+
+        var rootNodes = new List<int>();
+        foreach (var bone in geometry.Bones)
+        {
+            if (bone.Parent is null)
+                rootNodes.Add(boneNodeIndex[bone.Name]);
+        }
+
+        int matIndex;
+        if (texturePng is { Length: > 0 })
+        {
+            var mat = new GltfMaterial { Name = "material", DoubleSided = false };
+            mat.PbrMetallicRoughness = new GltfPbrMetallicRoughness();
+            if (embedTextureInBuffer)
+            {
+                mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = 0 };
+            }
+            matIndex = materials.Count;
+            materials.Add(mat);
+        }
+        else
+        {
+            materials.Add(new GltfMaterial { Name = "material", DoubleSided = false });
+            matIndex = 0;
+        }
+
+        foreach (var bone in geometry.Bones)
+        {
+            if (bone.Cubes is null or { Count: 0 }) continue;
+
+            int boneIdx = boneNodeIndex[bone.Name];
+            var bonePivotVec = bone.Pivot is { Count: >= 3 }
+                ? new Vector3(bone.Pivot[0], bone.Pivot[1], bone.Pivot[2])
+                : Vector3.Zero;
+            var boneRot = bone.Rotation is { Count: >= 3 }
+                ? CreateBlockbenchQuaternion(new Vector3(bone.Rotation[0], bone.Rotation[1], bone.Rotation[2]))
+                : Quaternion.Identity;
+
+            foreach (var cube in bone.Cubes)
+            {
+                if (cube.Origin is not { Count: >= 3 } || cube.Size is not { Count: >= 3 })
+                    continue;
+
+                float ox = cube.Origin[0], oy = cube.Origin[1], oz = cube.Origin[2];
+                float sx = cube.Size[0], sy = cube.Size[1], sz = cube.Size[2];
+                float inflate = cube.Inflate;
+
+                Vector3 cubePivotVec;
+                if (cube.Pivot is { Count: >= 3 })
+                    cubePivotVec = new Vector3(cube.Pivot[0], cube.Pivot[1], cube.Pivot[2]);
+                else
+                    cubePivotVec = new Vector3(ox + sx / 2f, oy + sy / 2f, oz + sz / 2f);
+
+                Quaternion cubeRot = Quaternion.Identity;
+                if (cube.Rotation is { Count: >= 3 })
+                    cubeRot = CreateBlockbenchQuaternion(new Vector3(cube.Rotation[0], cube.Rotation[1], cube.Rotation[2]));
+
+                float minX = ox - cubePivotVec.X - inflate;
+                float minY = oy - cubePivotVec.Y - inflate;
+                float minZ = oz - cubePivotVec.Z - inflate;
+                float maxX = ox + sx - cubePivotVec.X + inflate;
+                float maxY = oy + sy - cubePivotVec.Y + inflate;
+                float maxZ = oz + sz - cubePivotVec.Z + inflate;
+
+                var (posBuf, normBuf, uvBuf, idxBuf) = BuildCubeMeshData(
+                    cube, textureWidth, textureHeight, minX, minY, minZ, maxX, maxY, maxZ);
+
+                int posView = writer.WriteFloatsAligned(posBuf);
+                int normView = writer.WriteFloatsAligned(normBuf);
+                int uvView = writer.WriteFloatsAligned(uvBuf);
+                int idxView = writer.WriteIndicesAligned(idxBuf);
+
+                int vertCount = posBuf.Count / 3;
+
+                int posAcc = accessors.Count;
+                accessors.Add(new GltfAccessor
+                {
+                    BufferView = bufferViews.Count,
+                    ComponentType = 5126,
+                    Count = vertCount,
+                    Type = "VEC3",
+                    Min = ComputeMin(posBuf),
+                    Max = ComputeMax(posBuf),
+                });
+                bufferViews.Add(new GltfBufferView
+                {
+                    Buffer = 0,
+                    ByteOffset = posView,
+                    ByteLength = posBuf.Count * 4,
+                    Target = 34962,
+                });
+
+                int normAcc = accessors.Count;
+                accessors.Add(new GltfAccessor
+                {
+                    BufferView = bufferViews.Count,
+                    ComponentType = 5126,
+                    Count = vertCount,
+                    Type = "VEC3",
+                });
+                bufferViews.Add(new GltfBufferView
+                {
+                    Buffer = 0,
+                    ByteOffset = normView,
+                    ByteLength = normBuf.Count * 4,
+                    Target = 34962,
+                });
+
+                int uvAcc = accessors.Count;
+                accessors.Add(new GltfAccessor
+                {
+                    BufferView = bufferViews.Count,
+                    ComponentType = 5126,
+                    Count = vertCount,
+                    Type = "VEC2",
+                });
+                bufferViews.Add(new GltfBufferView
+                {
+                    Buffer = 0,
+                    ByteOffset = uvView,
+                    ByteLength = uvBuf.Count * 4,
+                    Target = 34962,
+                });
+
+                int idxAcc = accessors.Count;
+                accessors.Add(new GltfAccessor
+                {
+                    BufferView = bufferViews.Count,
+                    ComponentType = 5125,
+                    Count = idxBuf.Count,
+                    Type = "SCALAR",
+                });
+                bufferViews.Add(new GltfBufferView
+                {
+                    Buffer = 0,
+                    ByteOffset = idxView,
+                    ByteLength = idxBuf.Count * 4,
+                    Target = 34963,
+                });
+
+                var prim = new GltfPrimitive { Material = matIndex };
+                prim.Attributes["POSITION"] = posAcc;
+                prim.Attributes["NORMAL"] = normAcc;
+                prim.Attributes["TEXCOORD_0"] = uvAcc;
+                prim.Indices = idxAcc;
+
+                int meshIdx = meshes.Count;
+                meshes.Add(new GltfMesh { Name = $"cube_{bone.Name}", Primitives = [prim] });
+
+                int cubeNodeIdx = nodes.Count;
+                var cubeNode = new GltfNode
+                {
+                    Name = $"cube_{bone.Name}",
+                    Mesh = meshIdx,
+                };
+
+                var offsetFromBone = cubePivotVec - bonePivotVec;
+                var translation = Vector3.Transform(offsetFromBone, Quaternion.Conjugate(boneRot));
+                cubeNode.Translation = [translation.X, translation.Y, translation.Z];
+
+                CubeRotationAsArray(cube, out var rotArray);
+                if (rotArray is not null)
+                    cubeNode.Rotation = rotArray;
+
+                nodes.Add(cubeNode);
+                nodes[boneIdx].Children ??= [];
+                nodes[boneIdx].Children!.Add(cubeNodeIdx);
+            }
+        }
+
+        if (mirror != MirrorPlane.None)
+        {
+            float sx = mirror.HasFlag(MirrorPlane.YZ) ? -1f : 1f;
+            float sy = mirror.HasFlag(MirrorPlane.XZ) ? -1f : 1f;
+            float sz = mirror.HasFlag(MirrorPlane.XY) ? -1f : 1f;
+
+            int mirrorRootIdx = nodes.Count;
+            nodes.Add(new GltfNode
+            {
+                Name = "_mirror_root",
+                Scale = [sx, sy, sz],
+                Children = rootNodes,
+            });
+
+            int negCount = (mirror.HasFlag(MirrorPlane.XY) ? 1 : 0)
+                         + (mirror.HasFlag(MirrorPlane.XZ) ? 1 : 0)
+                         + (mirror.HasFlag(MirrorPlane.YZ) ? 1 : 0);
+            if (negCount % 2 == 1)
+            {
+                foreach (var mat in materials)
+                    mat.DoubleSided = true;
+            }
+
+            rootNodes = [mirrorRootIdx];
+        }
+
+        root.Scenes.Add(new GltfScene { Nodes = rootNodes });
+        root.Scene = 0;
+        root.Nodes = nodes;
+        root.Meshes = meshes;
+        root.Accessors = accessors;
+        root.BufferViews = bufferViews;
+        root.Buffers.Add(new GltfBuffer { ByteLength = (int)writer.Length });
+        root.Materials = materials;
+
+        if (embedTextureInBuffer && texturePng is { Length: > 0 })
+        {
+            root.Images = [new GltfImage { MimeType = textureMimeType, BufferView = bufferViews.Count - 1 }];
+            root.Textures = [new GltfTexture { Source = 0 }];
+            root.Samplers = [new GltfSampler()];
+        }
+    }
+
+    private static (List<float> pos, List<float> norm, List<float> uv, List<uint> idx) BuildCubeMeshData(
+        MinecraftCube cube, float texW, float texH,
+        float minX, float minY, float minZ, float maxX, float maxY, float maxZ)
+    {
+        var positions = new List<float>();
+        var normals = new List<float>();
+        var uvs = new List<float>();
+        var indices = new List<uint>();
+
+        float tw = texW > 0 ? texW : 64f;
+        float th = texH > 0 ? texH : 64f;
+
+        AddFace(positions, normals, uvs, indices,
+            minX, maxY, minZ, maxX, maxY, minZ, maxX, minY, minZ, minX, minY, minZ,
+            0, 0, -1,
+            GetFaceUV(cube.Uv?.North, tw, th));
+
+        AddFace(positions, normals, uvs, indices,
+            maxX, maxY, maxZ, minX, maxY, maxZ, minX, minY, maxZ, maxX, minY, maxZ,
+            0, 0, 1,
+            GetFaceUV(cube.Uv?.South, tw, th));
+
+        AddFace(positions, normals, uvs, indices,
+            minX, maxY, maxZ, maxX, maxY, maxZ, maxX, maxY, minZ, minX, maxY, minZ,
+            0, 1, 0,
+            GetFaceUV(cube.Uv?.Up, tw, th));
+
+        AddFace(positions, normals, uvs, indices,
+            minX, minY, minZ, maxX, minY, minZ, maxX, minY, maxZ, minX, minY, maxZ,
+            0, -1, 0,
+            GetFaceUV(cube.Uv?.Down, tw, th));
+
+        AddFace(positions, normals, uvs, indices,
+            minX, maxY, maxZ, minX, maxY, minZ, minX, minY, minZ, minX, minY, maxZ,
+            -1, 0, 0,
+            GetFaceUV(cube.Uv?.West, tw, th));
+
+        AddFace(positions, normals, uvs, indices,
+            maxX, maxY, minZ, maxX, maxY, maxZ, maxX, minY, maxZ, maxX, minY, minZ,
+            1, 0, 0,
+            GetFaceUV(cube.Uv?.East, tw, th));
+
+        return (positions, normals, uvs, indices);
+    }
+
+    private static void AddFace(
+        List<float> positions, List<float> normals, List<float> uvs, List<uint> indices,
+        float x0, float y0, float z0, float x1, float y1, float z1,
+        float x2, float y2, float z2, float x3, float y3, float z3,
+        float nx, float ny, float nz,
+        (float u0, float v0, float u1, float v1, float u2, float v2, float u3, float v3) faceUV)
+    {
+        uint baseIndex = (uint)(positions.Count / 3);
+
+        positions.AddRange([x0, y0, z0]);
+        positions.AddRange([x1, y1, z1]);
+        positions.AddRange([x2, y2, z2]);
+        positions.AddRange([x3, y3, z3]);
+
+        for (int i = 0; i < 4; i++)
+            normals.AddRange([nx, ny, nz]);
+
+        uvs.AddRange([faceUV.u0, faceUV.v0]);
+        uvs.AddRange([faceUV.u1, faceUV.v1]);
+        uvs.AddRange([faceUV.u2, faceUV.v2]);
+        uvs.AddRange([faceUV.u3, faceUV.v3]);
+
+        indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2]);
+        indices.AddRange([baseIndex, baseIndex + 2, baseIndex + 3]);
+    }
+
+    private static (float u0, float v0, float u1, float v1, float u2, float v2, float u3, float v3) GetFaceUV(
+        MinecraftCubeFaceUV? faceUv, float texW, float texH)
+    {
+        if (faceUv?.UvCoords is { Count: >= 2 })
+        {
+            float fu = faceUv.UvCoords[0];
+            float fv = faceUv.UvCoords[1];
+            float du = faceUv.UvSize is { Count: >= 2 } ? faceUv.UvSize[0] : 0f;
+            float dv = faceUv.UvSize is { Count: >= 2 } ? faceUv.UvSize[1] : 0f;
+
+            float u0 = fu / texW;
+            float v0 = fv / texH;
+            float u1 = (fu + du) / texW;
+            float v1 = (fv + dv) / texH;
+
+            return (u0, v0, u1, v0, u1, v1, u0, v1);
+        }
+
+        return (0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f);
+    }
+
+    private static MinecraftGeometryFile DeserializeGeometry(byte[] geometryJson)
+    {
+        return JsonSerializer.Deserialize<MinecraftGeometryFile>(geometryJson, _deserializeOptions)
+            ?? throw new InvalidOperationException("Failed to deserialize geometry JSON.");
+    }
+
+    internal static Quaternion CreateBlockbenchQuaternion(Vector3 eulerDegrees)
+    {
+        float rx = eulerDegrees.X * MathF.PI / 180f;
+        float ry = eulerDegrees.Y * MathF.PI / 180f;
+        float rz = eulerDegrees.Z * MathF.PI / 180f;
+        var m = Matrix4x4.CreateRotationX(rx)
+              * Matrix4x4.CreateRotationY(ry)
+              * Matrix4x4.CreateRotationZ(rz);
+        return Quaternion.CreateFromRotationMatrix(m);
+    }
+
+    private static void CubeRotationAsArray(MinecraftCube cube, out float[]? rotation)
+    {
+        if (cube.Rotation is { Count: >= 3 })
+        {
+            var euler = new Vector3(cube.Rotation[0], cube.Rotation[1], cube.Rotation[2]);
+            var q = CreateBlockbenchQuaternion(euler);
+            rotation = [q.X, q.Y, q.Z, q.W];
+        }
+        else
+        {
+            rotation = null;
+        }
+    }
+
+    private static float[] ComputeMin(List<float> data)
+    {
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        for (int i = 0; i < data.Count; i += 3)
+        {
+            minX = MathF.Min(minX, data[i]);
+            minY = MathF.Min(minY, data[i + 1]);
+            minZ = MathF.Min(minZ, data[i + 2]);
+        }
+        return [minX, minY, minZ];
+    }
+
+    private static float[] ComputeMax(List<float> data)
+    {
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+        for (int i = 0; i < data.Count; i += 3)
+        {
+            maxX = MathF.Max(maxX, data[i]);
+            maxY = MathF.Max(maxY, data[i + 1]);
+            maxZ = MathF.Max(maxZ, data[i + 2]);
+        }
+        return [maxX, maxY, maxZ];
+    }
+
+    private static byte[] PadTo4Bytes(byte[] data)
+    {
+        int rem = data.Length % 4;
+        if (rem == 0) return data;
+        int pad = 4 - rem;
+        var result = new byte[data.Length + pad];
+        Array.Copy(data, result, data.Length);
+        for (int i = data.Length; i < result.Length; i++)
+            result[i] = 0x20;
+        return result;
+    }
+
+    private static void WriteU32LE(Stream s, uint value)
+    {
+        Span<byte> buf = stackalloc byte[4];
+        buf[0] = (byte)(value & 0xFF);
+        buf[1] = (byte)((value >> 8) & 0xFF);
+        buf[2] = (byte)((value >> 16) & 0xFF);
+        buf[3] = (byte)((value >> 24) & 0xFF);
+        s.Write(buf);
+    }
+}
+
+internal sealed class GltfBufferWriter(Stream stream)
+{
+    public long Length => stream.Length;
+
+    public int WriteFloatsAligned(List<float> data)
+    {
+        int byteOffset = (int)stream.Length;
+        var bytes = new byte[data.Count * 4];
+        Buffer.BlockCopy(data.ToArray(), 0, bytes, 0, bytes.Length);
+        stream.Write(bytes, 0, bytes.Length);
+        return byteOffset;
+    }
+
+    public int WriteIndicesAligned(List<uint> data)
+    {
+        AlignTo(4);
+        int byteOffset = (int)stream.Length;
+        var bytes = new byte[data.Count * 4];
+        Buffer.BlockCopy(data.ToArray(), 0, bytes, 0, bytes.Length);
+        stream.Write(bytes, 0, bytes.Length);
+        return byteOffset;
+    }
+
+    public int WriteAlignedBytes(byte[] data, int alignment)
+    {
+        AlignTo(alignment);
+        int byteOffset = (int)stream.Length;
+        stream.Write(data, 0, data.Length);
+        return byteOffset;
+    }
+
+    private void AlignTo(int alignment)
+    {
+        long pos = stream.Length;
+        int rem = (int)(pos % alignment);
+        if (rem != 0)
+        {
+            int pad = alignment - rem;
+            stream.Write(new byte[pad], 0, pad);
+        }
+    }
+}

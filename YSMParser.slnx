@@ -6,5 +6,6 @@
   </Configurations>
   <Project Path="CLI/YSMParser.CLI.csproj" />
   <Project Path="Core/YSMParser.Core.csproj" />
+  <Project Path="Export/YSMParser.Export.csproj" />
   <Project Path="Tests/YSMParser.Tests.csproj" />
 </Solution>
