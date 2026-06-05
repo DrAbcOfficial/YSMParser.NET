@@ -42,8 +42,16 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           TAG="${{ github.ref_name }}"
-          TAG="${TAG#v}"
-          echo "VERSION_OVERRIDE=$TAG" >> $GITHUB_ENV
+          RAW="${TAG#v}"
+          if echo "$RAW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            VERSION="$RAW"
+          else
+            VERSION=$(echo "$RAW" | sed -E 's/^([0-9]{4})([0-9]{2})([0-9]{2})(.*)/\1.\2.\3\4/')
+            if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+              VERSION="0.0.0-$(echo "$RAW" | sed 's/[^a-zA-Z0-9.-]/-/g')"
+            fi
+          fi
+          echo "VERSION_OVERRIDE=$VERSION" >> $GITHUB_ENV
 
       - name: Override version (manual dispatch)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
