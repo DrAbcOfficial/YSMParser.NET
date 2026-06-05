@@ -136,7 +136,6 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     private static string FormatTime(float v)
     {
         if (MathF.Abs(v) < 1e-6f) return "0.0";
-        // Match the C++ ostream behavior: trim trailing zeros while keeping one decimal.
         string s = v.ToString("F6", CultureInfo.InvariantCulture);
         s = s.TrimEnd('0');
         if (s.Length > 0 && s[^1] == '.') s += "0";
@@ -748,9 +747,32 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
     private static BlockbenchCube RestoreBlockbenchCube(List<Face> facesData, float originalInflate, int textureWidth, int textureHeight)
     {
-        var uniquePts = new HashSet<(float, float, float)>();
+        var uniquePts = new List<(float X, float Y, float Z)>();
         var faceInfos = new List<FaceInfo>();
         var candidateAxes = new List<Vector3D>();
+
+        static bool Vector3DLessThan((float X, float Y, float Z) a, (float X, float Y, float Z) b)
+        {
+            if (MathF.Abs(a.X - b.X) >= 1e-4f) return a.X < b.X;
+            if (MathF.Abs(a.Y - b.Y) >= 1e-4f) return a.Y < b.Y;
+            if (MathF.Abs(a.Z - b.Z) >= 1e-4f) return a.Z < b.Z;
+            return false;
+        }
+
+        static void AddToSortedSet(List<(float X, float Y, float Z)> set, (float X, float Y, float Z) item)
+        {
+            for (int i = 0; i < set.Count; i++)
+            {
+                if (!Vector3DLessThan(set[i], item) && !Vector3DLessThan(item, set[i]))
+                    return;
+                if (Vector3DLessThan(item, set[i]))
+                {
+                    set.Insert(i, item);
+                    return;
+                }
+            }
+            set.Add(item);
+        }
 
         foreach (var f in facesData)
         {
@@ -765,7 +787,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     MathF.Round(verts[i].X * 10000f) / 10000f,
                     MathF.Round(verts[i].Y * 10000f) / 10000f,
                     MathF.Round(verts[i].Z * 10000f) / 10000f);
-                uniquePts.Add((p4.X, p4.Y, p4.Z));
+                AddToSortedSet(uniquePts, (p4.X, p4.Y, p4.Z));
             }
 
             var nW = f.Normal;
@@ -2200,7 +2222,24 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             {
                 string raw = name;
                 if (!raw.EndsWith(extension)) raw += extension;
-                ResolveRelative(raw, out var rel);
+
+                var normalized = raw.Replace('\\', '/');
+                var lastSlash = normalized.LastIndexOf('/');
+                var parentPath = lastSlash >= 0 ? normalized[..lastSlash] : "";
+                var fileName = lastSlash >= 0 ? normalized[(lastSlash + 1)..] : normalized;
+                var safeFileName = SanitizeWindowsFilename(fileName);
+                var safeRelativePath = string.IsNullOrEmpty(parentPath) ? safeFileName : parentPath + "/" + safeFileName;
+
+                string rel;
+                if (useLegacyRootLayout)
+                {
+                    rel = safeFileName;
+                }
+                else
+                {
+                    rel = defaultFolder + "/" + safeRelativePath;
+                }
+
                 var filePath = Path.Combine(outputDirectory, rel);
                 var dir = Path.GetDirectoryName(filePath);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
