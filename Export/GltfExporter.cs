@@ -20,6 +20,7 @@ public static class GltfExporter
     private const int GlbVersion = 2;
     private const int ChunkJson = 0x4E4F534A;
     private const int ChunkBin = 0x004E4942;
+    private const float ExportScale = 1f / 16f;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -148,7 +149,7 @@ public static class GltfExporter
 
             if (bone.Pivot is { Count: >= 3 })
             {
-                node.Translation = [bone.Pivot[0], bone.Pivot[1], bone.Pivot[2]];
+                node.Translation = [bone.Pivot[0] * ExportScale, bone.Pivot[1] * ExportScale, bone.Pivot[2] * ExportScale];
             }
 
             nodes.Add(node);
@@ -172,8 +173,36 @@ public static class GltfExporter
                     var parentPivot = new Vector3(parentBone.Pivot[0], parentBone.Pivot[1], parentBone.Pivot[2]);
                     var childPivot = new Vector3(bone.Pivot[0], bone.Pivot[1], bone.Pivot[2]);
                     var relativeOffset = Vector3.Transform(childPivot - parentPivot, Quaternion.Conjugate(parentRot));
-                    nodes[childIdx].Translation = [relativeOffset.X, relativeOffset.Y, relativeOffset.Z];
+                    nodes[childIdx].Translation = [relativeOffset.X * ExportScale, relativeOffset.Y * ExportScale, relativeOffset.Z * ExportScale];
                 }
+            }
+        }
+
+        var boneWorldPos = new Dictionary<string, Vector3>();
+        var boneWorldRot = new Dictionary<string, Quaternion>();
+        foreach (var bone in geometry.Bones)
+        {
+            var localRot = bone.Rotation is { Count: >= 3 }
+                ? CreateBlockbenchQuaternion(new Vector3(bone.Rotation[0], bone.Rotation[1], bone.Rotation[2]))
+                : Quaternion.Identity;
+            var localTrans = nodes[boneNodeIndex[bone.Name]].Translation is { Length: >= 3 } t
+                ? new Vector3(t[0], t[1], t[2])
+                : Vector3.Zero;
+
+            if (bone.Parent is null)
+            {
+                boneWorldPos[bone.Name] = new Vector3(
+                    bone.Pivot is { Count: >= 3 } ? bone.Pivot[0] : 0,
+                    bone.Pivot is { Count: >= 3 } ? bone.Pivot[1] : 0,
+                    bone.Pivot is { Count: >= 3 } ? bone.Pivot[2] : 0);
+                boneWorldRot[bone.Name] = localRot;
+            }
+            else
+            {
+                var pWPos = boneWorldPos[bone.Parent];
+                var pWRot = boneWorldRot[bone.Parent];
+                boneWorldPos[bone.Name] = pWPos + Vector3.Transform(localTrans / ExportScale, pWRot);
+                boneWorldRot[bone.Name] = Quaternion.Multiply(pWRot, localRot);
             }
         }
 
@@ -207,12 +236,9 @@ public static class GltfExporter
             if (bone.Cubes is null or { Count: 0 }) continue;
 
             int boneIdx = boneNodeIndex[bone.Name];
-            var bonePivotVec = bone.Pivot is { Count: >= 3 }
-                ? new Vector3(bone.Pivot[0], bone.Pivot[1], bone.Pivot[2])
-                : Vector3.Zero;
-            var boneRot = bone.Rotation is { Count: >= 3 }
-                ? CreateBlockbenchQuaternion(new Vector3(bone.Rotation[0], bone.Rotation[1], bone.Rotation[2]))
-                : Quaternion.Identity;
+            var bwPos = boneWorldPos[bone.Name];
+            var bwRot = boneWorldRot[bone.Name];
+            var bwRotInv = Quaternion.Inverse(bwRot);
 
             foreach (var cube in bone.Cubes)
             {
@@ -223,25 +249,15 @@ public static class GltfExporter
                 float sx = cube.Size[0], sy = cube.Size[1], sz = cube.Size[2];
                 float inflate = cube.Inflate;
 
-                Vector3 cubePivotVec;
-                if (cube.Pivot is { Count: >= 3 })
-                    cubePivotVec = new Vector3(cube.Pivot[0], cube.Pivot[1], cube.Pivot[2]);
-                else
-                    cubePivotVec = new Vector3(ox + sx / 2f, oy + sy / 2f, oz + sz / 2f);
-
-                Quaternion cubeRot = Quaternion.Identity;
-                if (cube.Rotation is { Count: >= 3 })
-                    cubeRot = CreateBlockbenchQuaternion(new Vector3(cube.Rotation[0], cube.Rotation[1], cube.Rotation[2]));
-
-                float minX = ox - cubePivotVec.X - inflate;
-                float minY = oy - cubePivotVec.Y - inflate;
-                float minZ = oz - cubePivotVec.Z - inflate;
-                float maxX = ox + sx - cubePivotVec.X + inflate;
-                float maxY = oy + sy - cubePivotVec.Y + inflate;
-                float maxZ = oz + sz - cubePivotVec.Z + inflate;
+                float lx = -inflate * ExportScale;
+                float ly = -inflate * ExportScale;
+                float lz = -inflate * ExportScale;
+                float hx = (sx + inflate) * ExportScale;
+                float hy = (sy + inflate) * ExportScale;
+                float hz = (sz + inflate) * ExportScale;
 
                 var (posBuf, normBuf, uvBuf, idxBuf) = BuildCubeMeshData(
-                    cube, textureWidth, textureHeight, minX, minY, minZ, maxX, maxY, maxZ);
+                    cube, textureWidth, textureHeight, lx, ly, lz, hx, hy, hz);
 
                 int posView = writer.WriteFloatsAligned(posBuf);
                 int normView = writer.WriteFloatsAligned(normBuf);
@@ -332,13 +348,17 @@ public static class GltfExporter
                     Mesh = meshIdx,
                 };
 
-                var offsetFromBone = cubePivotVec - bonePivotVec;
-                var translation = Vector3.Transform(offsetFromBone, Quaternion.Conjugate(boneRot));
-                cubeNode.Translation = [translation.X, translation.Y, translation.Z];
+                var cubeOriginVec = new Vector3(ox, oy, oz);
+                var txWorld = cubeOriginVec - bwPos;
+                var txLocal = Vector3.Transform(txWorld, bwRotInv);
+                cubeNode.Translation = [txLocal.X * ExportScale, txLocal.Y * ExportScale, txLocal.Z * ExportScale];
 
-                CubeRotationAsArray(cube, out var rotArray);
-                if (rotArray is not null)
-                    cubeNode.Rotation = rotArray;
+                if (cube.Rotation is { Count: >= 3 })
+                {
+                    var euler = new Vector3(cube.Rotation[0], cube.Rotation[1], cube.Rotation[2]);
+                    var q = CreateBlockbenchQuaternion(euler);
+                    cubeNode.Rotation = [q.X, q.Y, q.Z, q.W];
+                }
 
                 nodes.Add(cubeNode);
                 nodes[boneIdx].Children ??= [];
@@ -401,35 +421,41 @@ public static class GltfExporter
         float tw = texW > 0 ? texW : 64f;
         float th = texH > 0 ? texH : 64f;
 
+        // East (x = max)
         AddFace(positions, normals, uvs, indices,
-            minX, maxY, minZ, maxX, maxY, minZ, maxX, minY, minZ, minX, minY, minZ,
-            0, 0, -1,
-            GetFaceUV(cube.Uv?.North, tw, th));
+            maxX, maxY, maxZ, maxX, maxY, minZ, maxX, minY, maxZ, maxX, minY, minZ,
+            1, 0, 0,
+            GetFaceUV(cube.Uv?.East, tw, th));
 
+        // West (x = min)
         AddFace(positions, normals, uvs, indices,
-            maxX, maxY, maxZ, minX, maxY, maxZ, minX, minY, maxZ, maxX, minY, maxZ,
-            0, 0, 1,
-            GetFaceUV(cube.Uv?.South, tw, th));
-
-        AddFace(positions, normals, uvs, indices,
-            minX, maxY, maxZ, maxX, maxY, maxZ, maxX, maxY, minZ, minX, maxY, minZ,
-            0, 1, 0,
-            GetFaceUV(cube.Uv?.Up, tw, th));
-
-        AddFace(positions, normals, uvs, indices,
-            minX, minY, minZ, maxX, minY, minZ, maxX, minY, maxZ, minX, minY, maxZ,
-            0, -1, 0,
-            GetFaceUV(cube.Uv?.Down, tw, th));
-
-        AddFace(positions, normals, uvs, indices,
-            minX, maxY, maxZ, minX, maxY, minZ, minX, minY, minZ, minX, minY, maxZ,
+            minX, maxY, minZ, minX, maxY, maxZ, minX, minY, minZ, minX, minY, maxZ,
             -1, 0, 0,
             GetFaceUV(cube.Uv?.West, tw, th));
 
+        // Up (y = max)
         AddFace(positions, normals, uvs, indices,
-            maxX, maxY, minZ, maxX, maxY, maxZ, maxX, minY, maxZ, maxX, minY, minZ,
-            1, 0, 0,
-            GetFaceUV(cube.Uv?.East, tw, th));
+            minX, maxY, minZ, maxX, maxY, minZ, minX, maxY, maxZ, maxX, maxY, maxZ,
+            0, 1, 0,
+            GetFaceUV(cube.Uv?.Up, tw, th));
+
+        // Down (y = min)
+        AddFace(positions, normals, uvs, indices,
+            minX, minY, maxZ, maxX, minY, maxZ, minX, minY, minZ, maxX, minY, minZ,
+            0, -1, 0,
+            GetFaceUV(cube.Uv?.Down, tw, th));
+
+        // South (z = max)
+        AddFace(positions, normals, uvs, indices,
+            minX, maxY, maxZ, maxX, maxY, maxZ, minX, minY, maxZ, maxX, minY, maxZ,
+            0, 0, 1,
+            GetFaceUV(cube.Uv?.South, tw, th));
+
+        // North (z = min)
+        AddFace(positions, normals, uvs, indices,
+            maxX, maxY, minZ, minX, maxY, minZ, maxX, minY, minZ, minX, minY, minZ,
+            0, 0, -1,
+            GetFaceUV(cube.Uv?.North, tw, th));
 
         return (positions, normals, uvs, indices);
     }
@@ -456,8 +482,8 @@ public static class GltfExporter
         uvs.AddRange([faceUV.u2, faceUV.v2]);
         uvs.AddRange([faceUV.u3, faceUV.v3]);
 
-        indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2]);
-        indices.AddRange([baseIndex, baseIndex + 2, baseIndex + 3]);
+        indices.AddRange([baseIndex, baseIndex + 2, baseIndex + 1]);
+        indices.AddRange([baseIndex + 2, baseIndex + 3, baseIndex + 1]);
     }
 
     private static (float u0, float v0, float u1, float v1, float u2, float v2, float u3, float v3) GetFaceUV(
@@ -475,7 +501,7 @@ public static class GltfExporter
             float u1 = (fu + du) / texW;
             float v1 = (fv + dv) / texH;
 
-            return (u0, v0, u1, v0, u1, v1, u0, v1);
+            return (u0, v0, u1, v0, u0, v1, u1, v1);
         }
 
         return (0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f);
@@ -496,20 +522,6 @@ public static class GltfExporter
               * Matrix4x4.CreateRotationY(ry)
               * Matrix4x4.CreateRotationZ(rz);
         return Quaternion.CreateFromRotationMatrix(m);
-    }
-
-    private static void CubeRotationAsArray(MinecraftCube cube, out float[]? rotation)
-    {
-        if (cube.Rotation is { Count: >= 3 })
-        {
-            var euler = new Vector3(cube.Rotation[0], cube.Rotation[1], cube.Rotation[2]);
-            var q = CreateBlockbenchQuaternion(euler);
-            rotation = [q.X, q.Y, q.Z, q.W];
-        }
-        else
-        {
-            rotation = null;
-        }
     }
 
     private static float[] ComputeMin(List<float> data)
