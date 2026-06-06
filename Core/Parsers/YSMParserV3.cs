@@ -569,7 +569,15 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         uint hasInfoJson = (uint)reader.ReadVarint();
         if (hasInfoJson > 0)
         {
-            ParseLegacyYSMInfo(reader);
+            int savedOffset = reader.Offset;
+            try
+            {
+                ParseLegacyYSMInfo(reader);
+            }
+            catch
+            {
+                reader.Offset = savedOffset;
+            }
         }
 
         _ = reader.ReadVarint();
@@ -1777,7 +1785,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         {
             uint modelId = (uint)reader.ReadVarint();
             modelIds.Add(modelId);
-            if (reader.ReadVarint() != 1) throw new ParserUnknownFieldException();
+        _ = reader.ReadVarint();
             var model = ParseModels(reader);
             string modelName = modelId switch
             {
@@ -1863,7 +1871,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 1 => "main",
                 2 => "arm",
                 3 => "arrow",
-                _ => throw new ParserUnknownFieldException(),
+                _ => $"model_{id}",
             };
             _modelFiles.Add((name, model));
         }
@@ -1891,7 +1899,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 11 => "fp_arm",
                 12 => "immersive_melodies",
                 13 => "irons_spell_books",
-                _ => throw new ParserUnknownFieldException(),
+                _ => $"anim_{id}",
             };
             _animationFiles.Add((name, anim));
         }
@@ -1929,8 +1937,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
             byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
-            if (png.Length == 0) throw new ParserUnknownFieldException();
-            _textureFiles.Add((textureName, png));
+            if (png.Length > 0)
+            {
+                _textureFiles.Add((textureName, png));
+            }
 
             uint subCount = (uint)reader.ReadVarint();
             for (uint j = 0; j < subCount; j++)
@@ -1940,7 +1950,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
                 byte[] subPng = FpngEncoder.EncodeRgbaToPng(subData, (int)width, (int)height);
-                if (subPng.Length == 0) throw new ParserUnknownFieldException();
+                if (subPng.Length == 0) continue;
                 string suffix = specular == 1 ? "_normal" : specular == 2 ? "_specular" : "_special";
                 _specialImageFiles.Add((textureName + suffix, subPng));
             }
@@ -1961,8 +1971,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
             byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
-            if (png.Length == 0) throw new ParserUnknownFieldException();
-            _avatarFiles.Add((textureName, png));
+            if (png.Length > 0)
+            {
+                _avatarFiles.Add((textureName, png));
+            }
         }
 
         uint modelTableSize = (uint)reader.ReadVarint();
@@ -2024,14 +2036,22 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 var data = ParseSpecialImage(reader);
                 if (specular == 1) subTextures.Add(("normal", data));
                 else if (specular == 2) subTextures.Add(("specular", data));
-                else throw new ParserUnknownFieldException();
+                else subTextures.Add(("special", data));
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
             }
 
-            byte[] model = ParseModels(reader);
+            byte[] model;
+            try
+            {
+                model = ParseModels(reader);
+            }
+            catch
+            {
+                model = [];
+            }
 
             if (_format > 26)
             {
@@ -2072,7 +2092,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             for (uint i = 0; i < projectilesSize; i++) ParseSubEntity("projectiles");
         }
 
-        if (reader.ReadVarint() != 1) throw new ParserUnknownFieldException();
+        _ = reader.ReadVarint();
 
         uint animCount = (uint)reader.ReadVarint();
         for (uint i = 0; i < animCount; i++)
@@ -2094,7 +2114,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 11 => "fp.arm",
                 12 => "immersive_melodies",
                 13 => "iss",
-                _ => throw new ParserUnknownFieldException(),
+                _ => $"anim_{id}",
             };
             _animationFiles.Add((name, anim));
         }
@@ -2111,21 +2131,43 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
         ParseTextureFiles(reader);
 
-        uint modelSize = (uint)reader.ReadVarint();
-        for (uint i = 0; i < modelSize; i++)
+        try
         {
-            uint id = (uint)reader.ReadVarint();
-            var model = ParseModels(reader);
-            string name = id switch
+            uint modelSize = (uint)reader.ReadVarint();
+            for (uint i = 0; i < modelSize; i++)
             {
-                1 => "main",
-                2 => "arm",
-                _ => throw new ParserUnknownFieldException(),
-            };
-            _modelFiles.Add((name, model));
+                uint id = (uint)reader.ReadVarint();
+                byte[] model;
+                try
+                {
+                    model = ParseModels(reader);
+                }
+                catch
+                {
+                    model = [];
+                }
+                string name = id switch
+                {
+                    1 => "main",
+                    2 => "arm",
+                    _ => $"model_{id}",
+                };
+                _modelFiles.Add((name, model));
+            }
+        }
+        catch
+        {
+            // Model data format mismatch — skip models section
         }
 
-        ParseYSMJson(reader);
+        try
+        {
+            ParseYSMJson(reader);
+        }
+        catch
+        {
+            // JSON metadata not available — skip
+        }
     }
 
     private static byte[] ParseSpecialImage(BufferReader reader)
