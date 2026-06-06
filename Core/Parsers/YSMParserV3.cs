@@ -40,6 +40,16 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     private byte[] _ysmJsonFile = [];
     private bool _peekMode;
 
+    // Temporary peek-mode collectors
+    private readonly List<YsmModelInfo> _peekModels = [];
+    private readonly List<YsmAnimationInfo> _peekAnimations = [];
+    private string _peekLastModelId = string.Empty;
+    private int _peekLastBoneCount;
+    private int _peekLastCubeCount;
+    private float _peekLastTexW;
+    private float _peekLastTexH;
+    private bool _peekModelValid;
+
     /// <inheritdoc />
     public override int GetYSGPVersion() => 3;
     /// <inheritdoc />
@@ -49,6 +59,9 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     public override YsmPeekResult Peek()
     {
         _peekMode = true;
+        _peekModels.Clear();
+        _peekAnimations.Clear();
+        _peekModelValid = false;
         try
         {
             RunDecryptChain();
@@ -67,7 +80,9 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 ExtractHeaderTag("authors"),
                 _format,
                 ExtractHeaderTag("license"),
-                ParseHeaderBool("free"));
+                ParseHeaderBool("free"),
+                _peekModels.Count > 0 ? [.. _peekModels] : null,
+                _peekAnimations.Count > 0 ? [.. _peekAnimations] : null);
         }
         finally
         {
@@ -613,10 +628,12 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             model.Sha256 = reader.ReadString();
         }
         uint sizeOfBones = (uint)reader.ReadVarint();
+        int totalCubeCount = 0;
         for (uint i = 0; i < sizeOfBones; i++)
         {
             var bone = new ParsedBone { Parent = reader.ReadString() };
             uint cubesSize = (uint)reader.ReadVarint();
+            totalCubeCount += (int)cubesSize;
             for (uint j = 0; j < cubesSize; j++)
             {
                 var faces = new List<Face>();
@@ -687,7 +704,16 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         _ = reader.ReadVarint();
         _ = reader.ReadVarint();
 
-        if (_peekMode) return [];
+        if (_peekMode)
+        {
+            _peekLastModelId = model.Description.Identifier;
+            _peekLastBoneCount = (int)sizeOfBones;
+            _peekLastCubeCount = totalCubeCount;
+            _peekLastTexW = model.Description.TextureWidth;
+            _peekLastTexH = model.Description.TextureHeight;
+            _peekModelValid = true;
+            return [];
+        }
 
         var sb = new StringBuilder();
         sb.Append("{\"format_version\":\"1.12.0\",\"minecraft:geometry\":[{\"description\":{");
@@ -1232,6 +1258,10 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             }
 
             uint boneCount = (uint)reader.ReadVarint();
+
+            if (_peekMode)
+                _peekAnimations.Add(new(animName, animLen, (int)boneCount));
+
             var bonesObj = new JsonObject();
             for (uint b = 0; b < boneCount; b++)
             {
@@ -1900,6 +1930,8 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 3 => "arrow",
                 _ => throw new ParserUnknownFieldException(),
             };
+            if (_peekMode)
+                _peekModels.Add(new(modelName, _peekLastModelId, _peekLastBoneCount, _peekLastCubeCount, _peekLastTexW, _peekLastTexH));
             if (!_peekMode) _modelFiles.Add((modelName, model));
         }
 
@@ -1982,6 +2014,8 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 3 => "arrow",
                 _ => $"model_{id}",
             };
+            if (_peekMode)
+                _peekModels.Add(new(name, _peekLastModelId, _peekLastBoneCount, _peekLastCubeCount, _peekLastTexW, _peekLastTexH));
             if (!_peekMode) _modelFiles.Add((name, model));
         }
 
@@ -2165,6 +2199,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             catch
             {
                 model = [];
+                _peekModelValid = false;
             }
 
             if (_format > 26)
@@ -2174,6 +2209,8 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 {
                     subModuleName = reader.ReadString();
                     if (subModuleName.Contains(':')) subModuleName = subModuleName[(subModuleName.IndexOf(':') + 1)..];
+                    if (_peekMode && _peekModelValid)
+                        _peekModels.Add(new(subModuleName, _peekLastModelId, _peekLastBoneCount, _peekLastCubeCount, _peekLastTexW, _peekLastTexH));
                     if (!_peekMode)
                     {
                         _subEntityCategories[subModuleName] = categoryName;
@@ -2187,6 +2224,8 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 return;
             }
             if (subModuleName.Contains(':')) subModuleName = subModuleName[(subModuleName.IndexOf(':') + 1)..];
+            if (_peekMode && _peekModelValid)
+                _peekModels.Add(new(subModuleName, _peekLastModelId, _peekLastBoneCount, _peekLastCubeCount, _peekLastTexW, _peekLastTexH));
             if (!_peekMode)
             {
                 _subEntityCategories[subModuleName] = categoryName;
@@ -2272,6 +2311,9 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     2 => "arm",
                     _ => $"model_{id}",
                 };
+                if (_peekMode && _peekModelValid)
+                    _peekModels.Add(new(name, _peekLastModelId, _peekLastBoneCount, _peekLastCubeCount, _peekLastTexW, _peekLastTexH));
+                _peekModelValid = false;
                 if (!_peekMode) _modelFiles.Add((name, model));
             }
         }

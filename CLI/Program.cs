@@ -175,6 +175,24 @@ internal static class Program
                 Console.WriteLine($"    [{i + 1}] {result.ResourceNames[i]}");
         }
 
+        if (result.Models is { Count: > 0 })
+        {
+            Console.WriteLine($"  Models: ({result.Models.Count})");
+            foreach (var m in result.Models)
+            {
+                Console.WriteLine($"    [{m.Name}]  id={m.Identifier}  bones={m.BoneCount}  cubes={m.TotalCubeCount}  tex={m.TextureWidth}x{m.TextureHeight}");
+            }
+        }
+
+        if (result.Animations is { Count: > 0 })
+        {
+            Console.WriteLine($"  Animations: ({result.Animations.Count})");
+            foreach (var a in result.Animations)
+            {
+                Console.WriteLine($"    [{a.Name}]  length={a.Length:F2}s  bones={a.BoneCount}");
+            }
+        }
+
         if (result.InfoJson is { Length: > 0 })
         {
             Console.WriteLine("  info.json:");

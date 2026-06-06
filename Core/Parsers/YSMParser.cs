@@ -37,6 +37,34 @@ public sealed record YsmResourceData(
     byte[]? YsmJson);
 
 /// <summary>
+/// Summary information about a model parsed during peek.
+/// </summary>
+/// <param name="Name">Model file name (e.g. "main", "arm").</param>
+/// <param name="Identifier">Geometry identifier (e.g. "geometry.skin").</param>
+/// <param name="BoneCount">Number of bones in the model.</param>
+/// <param name="TotalCubeCount">Total number of cube elements across all bones.</param>
+/// <param name="TextureWidth">Texture width in pixels.</param>
+/// <param name="TextureHeight">Texture height in pixels.</param>
+public sealed record YsmModelInfo(
+    string Name,
+    string Identifier,
+    int BoneCount,
+    int TotalCubeCount,
+    float TextureWidth,
+    float TextureHeight);
+
+/// <summary>
+/// Summary information about an animation parsed during peek.
+/// </summary>
+/// <param name="Name">Animation name.</param>
+/// <param name="Length">Animation length in seconds.</param>
+/// <param name="BoneCount">Number of animated bones.</param>
+public sealed record YsmAnimationInfo(
+    string Name,
+    float Length,
+    int BoneCount);
+
+/// <summary>
 /// Lightweight metadata-only result from <see cref="YSMParser.Peek"/>.
 /// Avoids full decryption and resource extraction, saving CPU and memory.
 /// </summary>
@@ -50,6 +78,8 @@ public sealed record YsmResourceData(
 /// <param name="HeaderFormat">V3 plaintext header &lt;format&gt; tag value.</param>
 /// <param name="HeaderLicense">V3 plaintext header &lt;license&gt; tag value.</param>
 /// <param name="HeaderIsFree">V3 plaintext header &lt;free&gt; tag value.</param>
+/// <param name="Models">Per-model summaries (V3 only).</param>
+/// <param name="Animations">Per-animation summaries (V3 only).</param>
 public sealed record YsmPeekResult(
     int Version,
     long FileSize,
@@ -60,7 +90,9 @@ public sealed record YsmPeekResult(
     string? HeaderAuthors,
     int? HeaderFormat,
     string? HeaderLicense,
-    bool? HeaderIsFree);
+    bool? HeaderIsFree,
+    IReadOnlyList<YsmModelInfo>? Models,
+    IReadOnlyList<YsmAnimationInfo>? Animations);
 
 /// <summary>
 /// Abstract base class for all YSM parser versions.

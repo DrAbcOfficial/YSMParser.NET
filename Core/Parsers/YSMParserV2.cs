@@ -25,7 +25,7 @@ public sealed class YSMParserV2(byte[] buffer) : YSMParser
         byte[]? ysmJson = null;
 
         if (_buffer.Length == 0)
-            return new YsmPeekResult(2, 0, null, null, resourceNames, null, null, null, null, null);
+            return new YsmPeekResult(2, 0, null, null, resourceNames, null, null, null, null, null, null, null);
 
         int offset = 8 + 16;
         while (offset < _buffer.Length)
@@ -73,7 +73,7 @@ public sealed class YSMParserV2(byte[] buffer) : YSMParser
             }
         }
 
-        return new YsmPeekResult(2, _buffer.Length, infoJson, ysmJson, resourceNames, null, null, null, null, null);
+        return new YsmPeekResult(2, _buffer.Length, infoJson, ysmJson, resourceNames, null, null, null, null, null, null, null);
     }
 
     /// <inheritdoc />
