@@ -14,30 +14,31 @@ namespace YSMParser.Core.Parsers;
 /// <param name="buffer">The raw YSM file bytes.</param>
 public sealed class YSMParserV3(byte[] buffer) : YSMParser
 {
-    private readonly byte[] _buffer = buffer;
+    private byte[] _buffer = buffer;
     private string _header = string.Empty;
-    private readonly byte[] _key = new byte[32];
-    private readonly byte[] _iv = new byte[24];
+    private byte[] _key = new byte[32];
+    private byte[] _iv = new byte[24];
     private ulong _fileHash;
     private byte[] _binaryData = [];
     private byte[] _decrypted = [];
     private byte[] _decompressed = [];
 
     private int _format;
-    private readonly Dictionary<string, string> _subEntityCategories = [];
+    private Dictionary<string, string> _subEntityCategories = [];
 
-    private readonly List<(string Name, byte[] Data)> _soundFiles = [];
-    private readonly List<(string Name, byte[] Data)> _functionFiles = [];
-    private readonly List<(string Name, byte[] Data)> _languageFiles = [];
-    private readonly List<(string Name, byte[] Data)> _animControllerFiles = [];
-    private readonly List<(string Name, byte[] Data)> _textureFiles = [];
-    private readonly List<(string Name, byte[] Data)> _avatarFiles = [];
-    private readonly List<(string Name, byte[] Data)> _modelFiles = [];
-    private readonly List<(string Name, byte[] Data)> _animationFiles = [];
-    private readonly List<(string Name, byte[] Data)> _specialImageFiles = [];
-    private readonly List<(string Name, byte[] Data)> _backgroundFiles = [];
+    private List<(string Name, byte[] Data)> _soundFiles = [];
+    private List<(string Name, byte[] Data)> _functionFiles = [];
+    private List<(string Name, byte[] Data)> _languageFiles = [];
+    private List<(string Name, byte[] Data)> _animControllerFiles = [];
+    private List<(string Name, byte[] Data)> _textureFiles = [];
+    private List<(string Name, byte[] Data)> _avatarFiles = [];
+    private List<(string Name, byte[] Data)> _modelFiles = [];
+    private List<(string Name, byte[] Data)> _animationFiles = [];
+    private List<(string Name, byte[] Data)> _specialImageFiles = [];
+    private List<(string Name, byte[] Data)> _backgroundFiles = [];
     private byte[] _infoJsonFile = [];
     private byte[] _ysmJsonFile = [];
+    private bool _peekMode;
 
     /// <inheritdoc />
     public override int GetYSGPVersion() => 3;
@@ -45,19 +46,83 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     public override byte[] GetDecryptedData() => _decompressed;
 
     /// <inheritdoc />
-    public override void Parse()
+    public override YsmPeekResult Peek()
+    {
+        _peekMode = true;
+        try
+        {
+            RunDecryptChain();
+
+            if (Verbose)
+                Console.Error.WriteLine($"Start Peek Files (format = {_format})");
+
+            DeserializeForPeek(_decompressed);
+
+            return new YsmPeekResult(
+                3, _buffer.Length,
+                _infoJsonFile.Length > 0 ? [.. _infoJsonFile] : null,
+                _ysmJsonFile.Length > 0 ? [.. _ysmJsonFile] : null,
+                null,
+                ExtractHeaderTag("name"),
+                ExtractHeaderTag("authors"),
+                _format,
+                ExtractHeaderTag("license"),
+                ParseHeaderBool("free"));
+        }
+        finally
+        {
+            _peekMode = false;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (!disposing) return;
+        _soundFiles.Clear();
+        _functionFiles.Clear();
+        _languageFiles.Clear();
+        _animControllerFiles.Clear();
+        _textureFiles.Clear();
+        _avatarFiles.Clear();
+        _modelFiles.Clear();
+        _animationFiles.Clear();
+        _specialImageFiles.Clear();
+        _backgroundFiles.Clear();
+        _subEntityCategories.Clear();
+        _soundFiles = null!;
+        _functionFiles = null!;
+        _languageFiles = null!;
+        _animControllerFiles = null!;
+        _textureFiles = null!;
+        _avatarFiles = null!;
+        _modelFiles = null!;
+        _animationFiles = null!;
+        _specialImageFiles = null!;
+        _backgroundFiles = null!;
+        _subEntityCategories = null!;
+        _binaryData = null!;
+        _decrypted = null!;
+        _decompressed = null!;
+        _infoJsonFile = null!;
+        _ysmJsonFile = null!;
+        _buffer = null!;
+        _key = null!;
+        _iv = null!;
+        _header = null!;
+    }
+
+    /// <summary>
+    /// Runs the full decrypt/decompress chain (shared by Parse and Peek).
+    /// </summary>
+    private void RunDecryptChain()
     {
         _binaryData = [];
 
-        // Find the null-terminated boundary in raw bytes.
         int nulIdx = -1;
         for (int i = 0; i < _buffer.Length; i++)
         {
-            if (_buffer[i] == 0)
-            {
-                nulIdx = i;
-                break;
-            }
+            if (_buffer[i] == 0) { nulIdx = i; break; }
         }
         if (nulIdx < 0) throw new ParserInvalidFileFormatException();
         int headerByteEnd = nulIdx;
@@ -65,9 +130,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
         _format = ExtractFormatFromHeader(_header);
         if (_buffer.Length < 8 + 24 + 32 + 8)
-        {
             throw new ParserInvalidFileFormatException();
-        }
 
         int tailStart = _buffer.Length - 64;
         Array.Copy(_buffer, tailStart, _key, 0, 32);
@@ -76,9 +139,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
         int binaryStart = headerByteEnd + 1;
         if (binaryStart + 4 > _buffer.Length - 64)
-        {
             throw new ParserInvalidFileFormatException();
-        }
         uint crypto = MemoryUtils.ReadLE<uint>(_buffer.AsSpan(binaryStart));
         if (crypto != 3) throw new ParserInvalidFileFormatException();
 
@@ -89,7 +150,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         int binaryDataLength = _buffer.Length - 64 - binaryDataStart;
         var binaryDataSpan = _buffer.AsSpan(binaryDataStart, binaryDataLength);
 
-        if (Debug) 
+        if (Debug)
             _binaryData = binaryDataSpan.ToArray();
 
         byte[] chachaDecrypted = YsmCrypto.ModifiedChaChaDecrypt(binaryDataSpan, _key, _iv, YsmCrypto.SEED_RES_VERIFICATION);
@@ -101,13 +162,53 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
         _decompressed = YsmCrypto.DecompressZstd(decryptedSpan);
 
-        if (Debug) 
+        if (Debug)
             _decrypted = decryptedSpan.ToArray();
+    }
+
+    /// <summary>
+    /// Lightweight deserialization: tracks through the binary to find
+    /// and parse ysm.json / info.json, skipping expensive operations.
+    /// </summary>
+    private void DeserializeForPeek(byte[] data)
+    {
+        Deserialize(data);
+    }
+
+    private static string? ExtractTag(string header, string tag)
+    {
+        int pos = header.IndexOf("<" + tag + ">", StringComparison.Ordinal);
+        if (pos < 0) return null;
+        pos += tag.Length + 2;
+        int end = header.IndexOf("</" + tag + ">", pos, StringComparison.Ordinal);
+        if (end < 0)
+        {
+            end = header.IndexOf('<', pos);
+            if (end < 0) end = header.Length;
+        }
+        return header[pos..end].Trim();
+    }
+
+    private string? ExtractHeaderTag(string tag)
+    {
+        if (_header.Length == 0) return null;
+        return ExtractTag(_header, tag);
+    }
+
+    private bool? ParseHeaderBool(string tag)
+    {
+        var val = ExtractHeaderTag(tag);
+        if (val == null) return null;
+        return val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc />
+    public override void Parse()
+    {
+        RunDecryptChain();
 
         if (Verbose)
-        {
             Console.Error.WriteLine($"Start Parse Files (format = {_format})");
-        }
 
         Deserialize(_decompressed);
     }
@@ -585,6 +686,8 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         _ = reader.ReadVarint();
         _ = reader.ReadVarint();
         _ = reader.ReadVarint();
+
+        if (_peekMode) return [];
 
         var sb = new StringBuilder();
         sb.Append("{\"format_version\":\"1.12.0\",\"minecraft:geometry\":[{\"description\":{");
@@ -1585,7 +1688,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             string name = reader.ReadString();
             if (_format > 15) _ = reader.ReadString();
             var data = reader.ReadByteSequence();
-            _soundFiles.Add((name, data));
+            if (!_peekMode) _soundFiles.Add((name, data));
         }
     }
 
@@ -1597,7 +1700,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             string name = reader.ReadString();
             _ = reader.ReadString();
             var data = reader.ReadByteSequence();
-            _functionFiles.Add((name, data));
+            if (!_peekMode) _functionFiles.Add((name, data));
         }
     }
 
@@ -1611,7 +1714,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             uint nodes = (uint)reader.ReadVarint();
             var nodesObj = new JsonObject();
             for (uint j = 0; j < nodes; j++) nodesObj[reader.ReadString()] = reader.ReadString();
-            _languageFiles.Add((name, Encoding.UTF8.GetBytes(DumpJson(nodesObj, FormatJson))));
+            if (!_peekMode) _languageFiles.Add((name, Encoding.UTF8.GetBytes(DumpJson(nodesObj, FormatJson))));
         }
     }
 
@@ -1744,14 +1847,17 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             {
                 uint specular = (uint)reader.ReadVarint();
                 var subData = reader.ReadByteSequence();
-                string suffix = specular == 1 ? "_normal" : specular == 2 ? "_specular" : "_special";
-                _specialImageFiles.Add((name + suffix, subData));
+                if (!_peekMode)
+                {
+                    string suffix = specular == 1 ? "_normal" : specular == 2 ? "_specular" : "_special";
+                    _specialImageFiles.Add((name + suffix, subData));
+                }
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
             }
-            _textureFiles.Add((name, data));
+            if (!_peekMode) _textureFiles.Add((name, data));
         }
     }
 
@@ -1794,7 +1900,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 3 => "arrow",
                 _ => throw new ParserUnknownFieldException(),
             };
-            _modelFiles.Add((modelName, model));
+            if (!_peekMode) _modelFiles.Add((modelName, model));
         }
 
         uint animationCount = (uint)reader.ReadVarint();
@@ -1822,7 +1928,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 13 => "iss",
                 _ => throw new ParserUnknownFieldException(),
             };
-            _animationFiles.Add((name, anim));
+            if (!_peekMode) _animationFiles.Add((name, anim));
         }
 
         uint customTextureCount = (uint)reader.ReadVarint();
@@ -1837,9 +1943,12 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             var data = reader.ReadByteSequence();
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
-            byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
-            if (png.Length == 0) throw new ParserUnknownFieldException();
-            _textureFiles.Add((textureName, png));
+            if (!_peekMode)
+            {
+                byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
+                if (png.Length == 0) throw new ParserUnknownFieldException();
+                _textureFiles.Add((textureName, png));
+            }
         }
 
         // Hash tables (skipped - they don't affect export).
@@ -1873,7 +1982,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 3 => "arrow",
                 _ => $"model_{id}",
             };
-            _modelFiles.Add((name, model));
+            if (!_peekMode) _modelFiles.Add((name, model));
         }
 
         uint animationCount = (uint)reader.ReadVarint();
@@ -1901,7 +2010,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 13 => "irons_spell_books",
                 _ => $"anim_{id}",
             };
-            _animationFiles.Add((name, anim));
+            if (!_peekMode) _animationFiles.Add((name, anim));
         }
 
         if (_format > 9)
@@ -1921,7 +2030,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     _ = reader.ReadString();
                 }
                 var data = ParseAnimationControllers(reader);
-                _animControllerFiles.Add((controllerName, data));
+                if (!_peekMode) _animControllerFiles.Add((controllerName, data));
             }
 
             uint controllerTable = (uint)reader.ReadVarint();
@@ -1936,10 +2045,11 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             var data = reader.ReadByteSequence();
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
-            byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
-            if (png.Length > 0)
+            if (!_peekMode)
             {
-                _textureFiles.Add((textureName, png));
+                byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
+                if (png.Length > 0)
+                    _textureFiles.Add((textureName, png));
             }
 
             uint subCount = (uint)reader.ReadVarint();
@@ -1949,10 +2059,13 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 var subData = reader.ReadByteSequence();
                 _ = reader.ReadVarint();
                 _ = reader.ReadVarint();
-                byte[] subPng = FpngEncoder.EncodeRgbaToPng(subData, (int)width, (int)height);
-                if (subPng.Length == 0) continue;
-                string suffix = specular == 1 ? "_normal" : specular == 2 ? "_specular" : "_special";
-                _specialImageFiles.Add((textureName + suffix, subPng));
+                if (!_peekMode)
+                {
+                    byte[] subPng = FpngEncoder.EncodeRgbaToPng(subData, (int)width, (int)height);
+                    if (subPng.Length == 0) continue;
+                    string suffix = specular == 1 ? "_normal" : specular == 2 ? "_specular" : "_special";
+                    _specialImageFiles.Add((textureName + suffix, subPng));
+                }
             }
         }
 
@@ -1970,10 +2083,11 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             var data = reader.ReadByteSequence();
             uint width = (uint)reader.ReadVarint();
             uint height = (uint)reader.ReadVarint();
-            byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
-            if (png.Length > 0)
+            if (!_peekMode)
             {
-                _avatarFiles.Add((textureName, png));
+                byte[] png = FpngEncoder.EncodeRgbaToPng(data, (int)width, (int)height);
+                if (png.Length > 0)
+                    _avatarFiles.Add((textureName, png));
             }
         }
 
@@ -2060,22 +2174,28 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 {
                     subModuleName = reader.ReadString();
                     if (subModuleName.Contains(':')) subModuleName = subModuleName[(subModuleName.IndexOf(':') + 1)..];
-                    _subEntityCategories[subModuleName] = categoryName;
-                    _modelFiles.Add((subModuleName, model));
-                    foreach (var (n, d) in subTextures) _textureFiles.Add((subModuleName + "_" + n, d));
-                    _textureFiles.Add((subModuleName, baseTex));
-                    if (hasSubAnim) _animationFiles.Add((categoryName + "/" + subModuleName, anim));
-                    if (hasSubController) _animControllerFiles.Add((categoryName + "/" + subModuleName, subController));
+                    if (!_peekMode)
+                    {
+                        _subEntityCategories[subModuleName] = categoryName;
+                        _modelFiles.Add((subModuleName, model));
+                        foreach (var (n, d) in subTextures) _textureFiles.Add((subModuleName + "_" + n, d));
+                        _textureFiles.Add((subModuleName, baseTex));
+                        if (hasSubAnim) _animationFiles.Add((categoryName + "/" + subModuleName, anim));
+                        if (hasSubController) _animControllerFiles.Add((categoryName + "/" + subModuleName, subController));
+                    }
                 }
                 return;
             }
             if (subModuleName.Contains(':')) subModuleName = subModuleName[(subModuleName.IndexOf(':') + 1)..];
-            _subEntityCategories[subModuleName] = categoryName;
-            _modelFiles.Add((subModuleName, model));
-            foreach (var (n, d) in subTextures) _textureFiles.Add((subModuleName + "_" + n, d));
-            _textureFiles.Add((subModuleName, baseTex));
-            if (hasSubAnim) _animationFiles.Add((categoryName + "/" + subModuleName, anim));
-            if (hasSubController) _animControllerFiles.Add((categoryName + "/" + subModuleName, subController));
+            if (!_peekMode)
+            {
+                _subEntityCategories[subModuleName] = categoryName;
+                _modelFiles.Add((subModuleName, model));
+                foreach (var (n, d) in subTextures) _textureFiles.Add((subModuleName + "_" + n, d));
+                _textureFiles.Add((subModuleName, baseTex));
+                if (hasSubAnim) _animationFiles.Add((categoryName + "/" + subModuleName, anim));
+                if (hasSubController) _animControllerFiles.Add((categoryName + "/" + subModuleName, subController));
+            }
         }
 
         if (_format < 26)
@@ -2116,7 +2236,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                 13 => "iss",
                 _ => $"anim_{id}",
             };
-            _animationFiles.Add((name, anim));
+            if (!_peekMode) _animationFiles.Add((name, anim));
         }
 
         uint animControllerCount = (uint)reader.ReadVarint();
@@ -2126,7 +2246,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             if (_format <= 15) { controllerName = "controller"; _ = reader.ReadVarint(); }
             else { controllerName = reader.ReadString(); _ = reader.ReadString(); }
             var data = ParseAnimationControllers(reader);
-            _animControllerFiles.Add((controllerName, data));
+            if (!_peekMode) _animControllerFiles.Add((controllerName, data));
         }
 
         ParseTextureFiles(reader);
@@ -2152,7 +2272,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
                     2 => "arm",
                     _ => $"model_{id}",
                 };
-                _modelFiles.Add((name, model));
+                if (!_peekMode) _modelFiles.Add((name, model));
             }
         }
         catch

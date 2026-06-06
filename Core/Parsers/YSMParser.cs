@@ -37,10 +37,36 @@ public sealed record YsmResourceData(
     byte[]? YsmJson);
 
 /// <summary>
+/// Lightweight metadata-only result from <see cref="YSMParser.Peek"/>.
+/// Avoids full decryption and resource extraction, saving CPU and memory.
+/// </summary>
+/// <param name="Version">The YSGP format version (1, 2, or 3).</param>
+/// <param name="FileSize">Total file size in bytes.</param>
+/// <param name="InfoJson">Legacy info.json content (V3 format &lt; 4, or V1/V2).</param>
+/// <param name="YsmJson">Structured ysm.json manifest content (V3 format &gt;= 4, or V1/V2).</param>
+/// <param name="ResourceNames">List of resource entry names (V1/V2, or <c>null</c> for V3).</param>
+/// <param name="HeaderName">V3 plaintext header &lt;name&gt; tag value.</param>
+/// <param name="HeaderAuthors">V3 plaintext header &lt;authors&gt; tag value.</param>
+/// <param name="HeaderFormat">V3 plaintext header &lt;format&gt; tag value.</param>
+/// <param name="HeaderLicense">V3 plaintext header &lt;license&gt; tag value.</param>
+/// <param name="HeaderIsFree">V3 plaintext header &lt;free&gt; tag value.</param>
+public sealed record YsmPeekResult(
+    int Version,
+    long FileSize,
+    byte[]? InfoJson,
+    byte[]? YsmJson,
+    IReadOnlyList<string>? ResourceNames,
+    string? HeaderName,
+    string? HeaderAuthors,
+    int? HeaderFormat,
+    string? HeaderLicense,
+    bool? HeaderIsFree);
+
+/// <summary>
 /// Abstract base class for all YSM parser versions.
 /// Concrete implementations: <see cref="YSMParserV1"/>, <see cref="YSMParserV2"/>, <see cref="YSMParserV3"/>.
 /// </summary>
-public abstract class YSMParser
+public abstract class YSMParser : IDisposable
 {
     /// <summary>Enables verbose console output during parsing.</summary>
     public bool Verbose { get; set; }
@@ -50,6 +76,13 @@ public abstract class YSMParser
 
     /// <summary>Enables pretty-printed (indented) JSON output.</summary>
     public bool FormatJson { get; set; }
+
+    /// <summary>
+    /// Quickly reads metadata from the YSM file without fully decrypting or extracting
+    /// all resources. Significantly faster and uses less memory than <see cref="Parse"/>.
+    /// </summary>
+    /// <returns>A <see cref="YsmPeekResult"/> containing discovered metadata.</returns>
+    public abstract YsmPeekResult Peek();
 
     /// <summary>Returns the YSGP format version detected for this file.</summary>
     /// <returns>The version number (1, 2, or 3).</returns>
@@ -79,4 +112,25 @@ public abstract class YSMParser
     /// </summary>
     /// <returns>A <see cref="YsmResourceData"/> containing all extracted resources.</returns>
     public abstract YsmResourceData GetResources();
+
+    /// <summary>
+    /// Releases all managed resources held by this parser instance.
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Releases the managed resources used by this parser.
+    /// </summary>
+    /// <param name="disposing">
+    /// <c>true</c> to release both managed and unmanaged resources;
+    /// <c>false</c> to release only unmanaged resources.
+    /// </param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposing) return;
+    }
 }

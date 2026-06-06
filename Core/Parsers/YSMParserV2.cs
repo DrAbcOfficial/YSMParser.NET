@@ -10,15 +10,84 @@ namespace YSMParser.Core.Parsers;
 /// <param name="buffer">The raw YSM file bytes.</param>
 public sealed class YSMParserV2(byte[] buffer) : YSMParser
 {
-    private readonly byte[] _buffer = buffer;
-    private readonly byte[] _key = new byte[16];
-    private readonly Dictionary<string, byte[]> _resources = [];
+    private byte[] _buffer = buffer;
+    private byte[] _key = new byte[16];
+    private Dictionary<string, byte[]> _resources = [];
 
     /// <inheritdoc />
     public override int GetYSGPVersion() => 2;
 
     /// <inheritdoc />
+    public override YsmPeekResult Peek()
+    {
+        var resourceNames = new List<string>();
+        byte[]? infoJson = null;
+        byte[]? ysmJson = null;
+
+        if (_buffer.Length == 0)
+            return new YsmPeekResult(2, 0, null, null, resourceNames, null, null, null, null, null);
+
+        int offset = 8 + 16;
+        while (offset < _buffer.Length)
+        {
+            uint strSize = MemoryUtils.ReadBE<uint>(_buffer.AsSpan(offset));
+            offset += 4;
+            string b64 = Encoding.UTF8.GetString(_buffer, offset, (int)strSize);
+            string fileName = Base64Decode(b64);
+            offset += (int)strSize;
+
+            uint dataLen = MemoryUtils.ReadBE<uint>(_buffer.AsSpan(offset));
+            offset += 4;
+
+            resourceNames.Add(fileName);
+
+            uint encryptedKeyLength = MemoryUtils.ReadBE<uint>(_buffer.AsSpan(offset));
+            offset += 4;
+            if (encryptedKeyLength != 0x20) throw new ParserInvalidFileFormatException();
+
+            byte[] encryptedKey = _buffer.AsSpan(offset, (int)encryptedKeyLength).ToArray();
+            offset += (int)encryptedKeyLength;
+
+            byte[] iv = _buffer.AsSpan(offset, 16).ToArray();
+            offset += 16;
+
+            byte[] encryptedData = _buffer.AsSpan(offset, (int)dataLen).ToArray();
+            offset += (int)dataLen;
+
+            if (fileName.Equals("ysm.json", StringComparison.OrdinalIgnoreCase) ||
+                fileName.Equals("info.json", StringComparison.OrdinalIgnoreCase))
+            {
+                byte[] md5Digest = Md5Util.Hash(encryptedData);
+                var jRandom = new JavaRandom(Md5Util.HashToLong(md5Digest));
+                byte[] randomKey = new byte[16];
+                jRandom.NextBytes(randomKey);
+
+                byte[] realKey = AesUtil.DecryptCbc(encryptedKey, randomKey, iv);
+                byte[] decrypted = AesUtil.DecryptCbc(encryptedData, realKey.AsSpan(0, 16), iv);
+                byte[] decompressed = ZlibUtil.Decompress(decrypted);
+
+                if (fileName.Equals("ysm.json", StringComparison.OrdinalIgnoreCase))
+                    ysmJson = decompressed;
+                else
+                    infoJson = decompressed;
+            }
+        }
+
+        return new YsmPeekResult(2, _buffer.Length, infoJson, ysmJson, resourceNames, null, null, null, null, null);
+    }
+
+    /// <inheritdoc />
     public override byte[] GetDecryptedData() => [];
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (!disposing) return;
+        _resources.Clear();
+        _resources = null!;
+        _buffer = null!;
+        _key = null!;
+    }
 
     /// <inheritdoc />
     public override void Parse()
