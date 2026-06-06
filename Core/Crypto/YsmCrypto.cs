@@ -145,15 +145,35 @@ public static class YsmCrypto
     {
         byte[] washed = YsmZstd.Wash(compressedData);
         using var decompressor = new ZstdSharp.Decompressor();
-        int maxSize = Math.Max(8, washed.Length * 8);
-        for (int attempt = 0; attempt < 4; attempt++)
+
+        ulong exactSize = ZstdSharp.Decompressor.GetDecompressedSize(washed);
+        if (exactSize > 0)
         {
-            byte[] output = new byte[maxSize];
+            byte[] output = new byte[exactSize];
             int written = decompressor.Unwrap(washed, output);
             if (written > 0)
             {
-                Array.Resize(ref output, written);
                 return output;
+            }
+            throw new InvalidOperationException("Zstd decompression failed (no output produced).");
+        }
+
+        int maxSize = Math.Max(8, washed.Length * 4);
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            byte[] output = new byte[maxSize];
+            try
+            {
+                int written = decompressor.Unwrap(washed, output);
+                if (written > 0)
+                {
+                    Array.Resize(ref output, written);
+                    return output;
+                }
+            }
+            catch (ZstdSharp.ZstdException)
+            {
+                // Buffer too small — retry with larger size.
             }
             maxSize *= 4;
         }
