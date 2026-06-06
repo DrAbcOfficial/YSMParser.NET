@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-
 namespace YSMParser.Core.Crypto;
 
 /// <summary>
@@ -50,57 +48,60 @@ public static class YsmZstd
     /// <exception cref="InvalidOperationException">
     /// Thrown if an unknown block type is encountered.
     /// </exception>
-    public static byte[] Wash(ReadOnlySpan<byte> compressedData)
+    public static unsafe byte[] Wash(ReadOnlySpan<byte> compressedData)
     {
         if (compressedData.Length < 5)
         {
             throw new ArgumentException("Invalid data length");
         }
 
-        var data = compressedData.ToArray();
+        var data = GC.AllocateUninitializedArray<byte>(compressedData.Length);
+        compressedData.CopyTo(data);
 
-        uint magic = BinaryPrimitives.ReadUInt32LittleEndian(data);
-        if (magic != 0xFD2FB528)
+        fixed (byte* pData = data)
         {
-            throw new ArgumentException("Not a standard ZSTD Magic Number. May be skippable frame or unknown.");
-        }
-
-        byte fhd = data[4];
-        // Clear the checksum bit (bit 2) of the Frame Header Descriptor.
-        data[4] = (byte)(fhd & 0xFB);
-
-        int frameHeaderSize = CalculateFrameHeaderSize(fhd);
-        int offset = 4 + frameHeaderSize;
-
-        while (offset + 3 <= data.Length)
-        {
-            uint b0 = data[offset];
-            uint b1 = data[offset + 1];
-            uint b2 = data[offset + 2];
-
-            uint lastBlock = (b0 >> 7) & 1;
-            uint blockTypeYSM = (b0 >> 5) & 3;
-            uint rawSize = ((b0 & 0x1F) << 16) | b1 | (b2 << 8);
-            uint cSize = rawSize ^ 0xD4E9;
-            var blockTypeStd = blockTypeYSM switch
+            if (*(uint*)pData != 0xFD2FB528)
             {
-                0 => STD_BT_COMPRESSED,
-                1 => STD_BT_RLE,
-                2 => STD_BT_RESERVED,
-                3 => STD_BT_RAW,
-                _ => throw new InvalidOperationException("Unknown block type"),
-            };
-            uint stdHeader = lastBlock | (blockTypeStd << 1) | (cSize << 3);
-            data[offset] = (byte)(stdHeader & 0xFF);
-            data[offset + 1] = (byte)((stdHeader >> 8) & 0xFF);
-            data[offset + 2] = (byte)((stdHeader >> 16) & 0xFF);
+                throw new ArgumentException("Not a standard ZSTD Magic Number. May be skippable frame or unknown.");
+            }
 
-            uint blockDataSize = blockTypeStd == STD_BT_RLE ? 1u : cSize;
-            offset += 3 + (int)blockDataSize;
+            byte fhd = pData[4];
+            // Clear the checksum bit (bit 2) of the Frame Header Descriptor.
+            pData[4] = (byte)(fhd & 0xFB);
 
-            if (lastBlock == 1)
+            int frameHeaderSize = CalculateFrameHeaderSize(fhd);
+            int offset = 4 + frameHeaderSize;
+
+            while (offset + 3 <= data.Length)
             {
-                break;
+                uint b0 = pData[offset];
+                uint b1 = pData[offset + 1];
+                uint b2 = pData[offset + 2];
+
+                uint lastBlock = (b0 >> 7) & 1;
+                uint blockTypeYSM = (b0 >> 5) & 3;
+                uint rawSize = ((b0 & 0x1F) << 16) | b1 | (b2 << 8);
+                uint cSize = rawSize ^ 0xD4E9;
+                var blockTypeStd = blockTypeYSM switch
+                {
+                    0 => STD_BT_COMPRESSED,
+                    1 => STD_BT_RLE,
+                    2 => STD_BT_RESERVED,
+                    3 => STD_BT_RAW,
+                    _ => throw new InvalidOperationException("Unknown block type"),
+                };
+                uint stdHeader = lastBlock | (blockTypeStd << 1) | (cSize << 3);
+                pData[offset] = (byte)(stdHeader & 0xFF);
+                pData[offset + 1] = (byte)((stdHeader >> 8) & 0xFF);
+                pData[offset + 2] = (byte)((stdHeader >> 16) & 0xFF);
+
+                uint blockDataSize = blockTypeStd == STD_BT_RLE ? 1u : cSize;
+                offset += 3 + (int)blockDataSize;
+
+                if (lastBlock == 1)
+                {
+                    break;
+                }
             }
         }
 

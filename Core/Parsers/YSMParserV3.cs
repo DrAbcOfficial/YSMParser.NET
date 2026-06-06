@@ -87,18 +87,22 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
 
         int binaryDataStart = binaryStart + 4;
         int binaryDataLength = _buffer.Length - 64 - binaryDataStart;
-        _binaryData = new byte[binaryDataLength];
-        Array.Copy(_buffer, binaryDataStart, _binaryData, 0, binaryDataLength);
+        var binaryDataSpan = _buffer.AsSpan(binaryDataStart, binaryDataLength);
 
-        byte[] chachaDecrypted = YsmCrypto.ModifiedChaChaDecrypt(_binaryData, _key, _iv, YsmCrypto.SEED_RES_VERIFICATION);
+        if (Debug) 
+            _binaryData = binaryDataSpan.ToArray();
+
+        byte[] chachaDecrypted = YsmCrypto.ModifiedChaChaDecrypt(binaryDataSpan, _key, _iv, YsmCrypto.SEED_RES_VERIFICATION);
         byte[] xorredData = YsmCrypto.MT19937XorDecrypt(chachaDecrypted, _key, _iv);
 
         ushort n = BinaryPrimitives.ReadUInt16LittleEndian(xorredData);
         n &= 0x3FF;
-        _decrypted = new byte[xorredData.Length - 2 - n];
-        Array.Copy(xorredData, 2 + n, _decrypted, 0, _decrypted.Length);
+        var decryptedSpan = xorredData.AsSpan(2 + n);
 
-        _decompressed = YsmCrypto.DecompressZstd(_decrypted);
+        _decompressed = YsmCrypto.DecompressZstd(decryptedSpan);
+
+        if (Debug) 
+            _decrypted = decryptedSpan.ToArray();
 
         if (Verbose)
         {
@@ -890,12 +894,12 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         float minEulerSum = float.PositiveInfinity;
 
         int[][] perms = [
-            [0, 1, 2], [0, 2, 1], [1, 0, 2], 
+            [0, 1, 2], [0, 2, 1], [1, 0, 2],
             [1, 2, 0], [2, 0, 1], [2, 1, 0]
             ];
         float[][] signs = [
-            [1, 1, 1], [1, 1, -1], [1, -1, 1], 
-            [1, -1, -1], [-1, 1, 1], [-1, 1, -1], 
+            [1, 1, 1], [1, 1, -1], [1, -1, 1],
+            [1, -1, -1], [-1, 1, 1], [-1, 1, -1],
             [-1, -1, 1], [-1, -1, -1]
             ];
 

@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>YSMParser.Core</PackageId>
     <Description>Core library for parsing YSM Minecraft player model files. Supports V1 (AES-CBC+zlib), V2 (JavaRandom key derivation), and V3 (XChaCha20+MT19937+zstd).</Description>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="YSMParser.Tests" />

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace YSMParser.Core.Crypto;
 
@@ -119,7 +120,7 @@ public static class XChaCha20
     /// to <paramref name="c"/>, and XORs the message with the keystream after
     /// performing the configured number of rounds. Identical to the C++ reference.
     /// </summary>
-    private static void EncryptBlock(XChaChaCtx ctx, ReadOnlySpan<byte> m, Span<byte> c, uint j12Init, uint j13Init)
+    private static unsafe void EncryptBlock(XChaChaCtx ctx, ReadOnlySpan<byte> m, Span<byte> c, uint j12Init, uint j13Init)
     {
         uint x0 = ctx.Input[0], x1 = ctx.Input[1], x2 = ctx.Input[2], x3 = ctx.Input[3];
         uint x4 = ctx.Input[4], x5 = ctx.Input[5], x6 = ctx.Input[6], x7 = ctx.Input[7];
@@ -143,39 +144,19 @@ public static class XChaCha20
         x8 += ctx.Input[8]; x9 += ctx.Input[9]; x10 += ctx.Input[10]; x11 += ctx.Input[11];
         x12 += j12Init; x13 += j13Init; x14 += ctx.Input[14]; x15 += ctx.Input[15];
 
-        x0 ^= BinaryPrimitives.ReadUInt32LittleEndian(m[..4]);
-        x1 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(4, 4));
-        x2 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(8, 4));
-        x3 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(12, 4));
-        x4 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(16, 4));
-        x5 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(20, 4));
-        x6 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(24, 4));
-        x7 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(28, 4));
-        x8 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(32, 4));
-        x9 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(36, 4));
-        x10 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(40, 4));
-        x11 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(44, 4));
-        x12 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(48, 4));
-        x13 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(52, 4));
-        x14 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(56, 4));
-        x15 ^= BinaryPrimitives.ReadUInt32LittleEndian(m.Slice(60, 4));
+        fixed (uint* mPtr = MemoryMarshal.Cast<byte, uint>(m))
+        fixed (uint* cPtr = MemoryMarshal.Cast<byte, uint>(c))
+        {
+            x0 ^= mPtr[0]; x1 ^= mPtr[1]; x2 ^= mPtr[2]; x3 ^= mPtr[3];
+            x4 ^= mPtr[4]; x5 ^= mPtr[5]; x6 ^= mPtr[6]; x7 ^= mPtr[7];
+            x8 ^= mPtr[8]; x9 ^= mPtr[9]; x10 ^= mPtr[10]; x11 ^= mPtr[11];
+            x12 ^= mPtr[12]; x13 ^= mPtr[13]; x14 ^= mPtr[14]; x15 ^= mPtr[15];
 
-        BinaryPrimitives.WriteUInt32LittleEndian(c[..4], x0);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(4, 4), x1);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(8, 4), x2);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(12, 4), x3);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(16, 4), x4);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(20, 4), x5);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(24, 4), x6);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(28, 4), x7);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(32, 4), x8);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(36, 4), x9);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(40, 4), x10);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(44, 4), x11);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(48, 4), x12);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(52, 4), x13);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(56, 4), x14);
-        BinaryPrimitives.WriteUInt32LittleEndian(c.Slice(60, 4), x15);
+            cPtr[0] = x0; cPtr[1] = x1; cPtr[2] = x2; cPtr[3] = x3;
+            cPtr[4] = x4; cPtr[5] = x5; cPtr[6] = x6; cPtr[7] = x7;
+            cPtr[8] = x8; cPtr[9] = x9; cPtr[10] = x10; cPtr[11] = x11;
+            cPtr[12] = x12; cPtr[13] = x13; cPtr[14] = x14; cPtr[15] = x15;
+        }
     }
 
     /// <summary>

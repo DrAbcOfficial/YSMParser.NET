@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace YSMParser.Export;
@@ -654,9 +655,9 @@ internal sealed class GltfBufferWriter(Stream stream)
     public int WriteFloatsAligned(List<float> data)
     {
         int byteOffset = (int)stream.Length;
-        var bytes = new byte[data.Count * 4];
-        Buffer.BlockCopy(data.ToArray(), 0, bytes, 0, bytes.Length);
-        stream.Write(bytes, 0, bytes.Length);
+        var floatSpan = CollectionsMarshal.AsSpan(data);
+        var byteSpan = MemoryMarshal.Cast<float, byte>(floatSpan);
+        stream.Write(byteSpan);
         return byteOffset;
     }
 
@@ -664,9 +665,9 @@ internal sealed class GltfBufferWriter(Stream stream)
     {
         AlignTo(4);
         int byteOffset = (int)stream.Length;
-        var bytes = new byte[data.Count * 4];
-        Buffer.BlockCopy(data.ToArray(), 0, bytes, 0, bytes.Length);
-        stream.Write(bytes, 0, bytes.Length);
+        var uintSpan = CollectionsMarshal.AsSpan(data);
+        var byteSpan = MemoryMarshal.Cast<uint, byte>(uintSpan);
+        stream.Write(byteSpan);
         return byteOffset;
     }
 

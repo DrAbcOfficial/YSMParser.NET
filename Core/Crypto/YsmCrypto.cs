@@ -73,7 +73,7 @@ public static class YsmCrypto
         };
         XChaCha20.KeySetup(ctx, key, iv);
 
-        byte[] result = new byte[data.Length];
+        byte[] result = GC.AllocateUninitializedArray<byte>(data.Length);
 
         while (blockPointer < data.Length)
         {
@@ -116,17 +116,31 @@ public static class YsmCrypto
 
         ulong seed = CityHash64.CityHash64WithSeed(keyIv, 56, SEED_KEY_DERIVATION);
         var mt = new Mt19937(seed);
-        byte[] result = new byte[data.Length];
+        byte[] result = GC.AllocateUninitializedArray<byte>(data.Length);
 
-        int i = 0;
-        while (i < data.Length)
+        unsafe
         {
-            ulong rnd = mt.NextUInt64();
-            for (int j = 0; j < 8 && i < data.Length; ++j)
+            fixed (byte* pData = data)
+            fixed (byte* pResult = result)
             {
-                byte ks = (byte)((rnd >> (j * 8)) & 0xFF);
-                result[i] = (byte)(data[i] ^ ks);
-                ++i;
+                ulong* pDataU = (ulong*)pData;
+                ulong* pResultU = (ulong*)pResult;
+                int nBlocks = data.Length / 8;
+                for (int bi = 0; bi < nBlocks; bi++)
+                {
+                    pResultU[bi] = pDataU[bi] ^ mt.NextUInt64();
+                }
+                int tailStart = nBlocks * 8;
+                if (tailStart < data.Length)
+                {
+                    ulong rnd = mt.NextUInt64();
+                    byte* pTailData = pData + tailStart;
+                    byte* pTailResult = pResult + tailStart;
+                    for (int j = 0; tailStart + j < data.Length; j++)
+                    {
+                        pTailResult[j] = (byte)(pTailData[j] ^ (byte)((rnd >> (j * 8)) & 0xFF));
+                    }
+                }
             }
         }
         return result;
@@ -149,7 +163,7 @@ public static class YsmCrypto
         ulong exactSize = ZstdSharp.Decompressor.GetDecompressedSize(washed);
         if (exactSize > 0)
         {
-            byte[] output = new byte[exactSize];
+            byte[] output = GC.AllocateUninitializedArray<byte>((int)exactSize);
             int written = decompressor.Unwrap(washed, output);
             if (written > 0)
             {
@@ -161,7 +175,7 @@ public static class YsmCrypto
         int maxSize = Math.Max(8, washed.Length * 4);
         for (int attempt = 0; attempt < 4; attempt++)
         {
-            byte[] output = new byte[maxSize];
+            byte[] output = GC.AllocateUninitializedArray<byte>(maxSize);
             try
             {
                 int written = decompressor.Unwrap(washed, output);
