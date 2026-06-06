@@ -2,6 +2,8 @@
 
 A pure .NET parser for `.ysm` model files — a encrypted binary format used for Minecraft player models.
 
+[Example](https://github.com/DrAbcOfficial/YSMViewer)
+
 ## Quick Start
 
 ```powershell
