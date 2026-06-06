@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using YSMParser.Core.Parsers;
 
 namespace YSMParser.CLI;
@@ -20,9 +23,10 @@ internal static class Program
             return 0;
         }
 
-        string? inputDir = GetOption(args, "-i", "--input");
+        string? inputPath = GetOption(args, "-i", "--input");
         string? outputDir = GetOption(args, "-o", "--output");
         bool infoOnly = HasFlag(args, "-n", "--info");
+        bool peek = HasFlag(args, "-p", "--peek");
         bool verbose = HasFlag(args, "-v", "--verbose");
         bool debug = HasFlag(args, "-d", "--debug");
         bool formatJson = HasFlag(args, "-f", "--format");
@@ -33,34 +37,34 @@ internal static class Program
             threads = t;
         }
 
-        if (string.IsNullOrEmpty(inputDir))
+        if (string.IsNullOrEmpty(inputPath))
         {
             Console.Error.WriteLine("[ YSMParser ] --input is required.");
             PrintUsage();
             return 1;
         }
-        if (!infoOnly && string.IsNullOrEmpty(outputDir))
+        if (!infoOnly && !peek && string.IsNullOrEmpty(outputDir))
         {
-            Console.Error.WriteLine("[ YSMParser ] --output is required when not using --info.");
+            Console.Error.WriteLine("[ YSMParser ] --output is required when not using --info or --peek.");
             PrintUsage();
             return 1;
         }
 
         try
         {
-            if (!Directory.Exists(inputDir))
+            if (!File.Exists(inputPath) && !Directory.Exists(inputPath))
             {
-                throw new DirectoryNotFoundException($"Input directory does not exist: {inputDir}");
+                throw new FileNotFoundException($"Input path does not exist: {inputPath}");
             }
-            if (!infoOnly && outputDir is not null && !Directory.Exists(outputDir))
+            if (!infoOnly && !peek && outputDir is not null && !Directory.Exists(outputDir))
             {
                 Directory.CreateDirectory(outputDir);
             }
 
-            var tasks = CollectFileTasks(inputDir, outputDir ?? string.Empty, infoOnly);
+            var tasks = CollectTasks(inputPath, outputDir ?? string.Empty, infoOnly || peek);
             if (tasks.Count == 0)
             {
-                Console.WriteLine($"[ YSMParser ] No .ysm files found in {inputDir}");
+                Console.WriteLine($"[ YSMParser ] No .ysm files found in {inputPath}");
                 return 0;
             }
 
@@ -89,7 +93,18 @@ internal static class Program
                     parser.FormatJson = formatJson;
                     int version = parser.GetYSGPVersion();
 
-                    if (infoOnly)
+                    if (peek)
+                    {
+                        using (parser)
+                        {
+                            var fi = new FileInfo(task.InputPath);
+                            Console.WriteLine($"[ {task.FileName} ]  ({fi.Length:N0} bytes, V{version})");
+                            var result = parser.Peek();
+                            PrintPeekResult(result);
+                        }
+                        ok = true;
+                    }
+                    else if (infoOnly)
                     {
                         var fi = new FileInfo(task.InputPath);
                         Console.WriteLine($"[ {task.FileName} ]  ({fi.Length:N0} bytes, V{version})");
@@ -140,13 +155,74 @@ internal static class Program
         }
     }
 
-    private static List<FileTask> CollectFileTasks(string inputDir, string outputDir, bool infoOnly)
+    private static void PrintPeekResult(YsmPeekResult result)
     {
-        var tasks = new List<FileTask>();
-        foreach (var path in Directory.EnumerateFiles(inputDir, "*.ysm", SearchOption.AllDirectories))
+        if (result.HeaderName != null)
+            Console.WriteLine($"  Name:     {result.HeaderName}");
+        if (result.HeaderAuthors != null)
+            Console.WriteLine($"  Authors:  {result.HeaderAuthors}");
+        if (result.HeaderFormat.HasValue)
+            Console.WriteLine($"  Format:   {result.HeaderFormat}");
+        if (result.HeaderLicense != null)
+            Console.WriteLine($"  License:  {result.HeaderLicense}");
+        if (result.HeaderIsFree.HasValue)
+            Console.WriteLine($"  Free:     {result.HeaderIsFree}");
+
+        if (result.ResourceNames is { Count: > 0 })
         {
-            string relative = Path.GetRelativePath(inputDir, path);
-            string outputSubdir = infoOnly ? string.Empty : Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path));
+            Console.WriteLine($"  Resources: ({result.ResourceNames.Count} files)");
+            for (int i = 0; i < result.ResourceNames.Count; i++)
+                Console.WriteLine($"    [{i + 1}] {result.ResourceNames[i]}");
+        }
+
+        if (result.InfoJson is { Length: > 0 })
+        {
+            Console.WriteLine("  info.json:");
+            PrintJson(result.InfoJson);
+        }
+
+        if (result.YsmJson is { Length: > 0 })
+        {
+            Console.WriteLine("  ysm.json:");
+            PrintJson(result.YsmJson);
+        }
+    }
+
+    private static void PrintJson(byte[] raw)
+    {
+        try
+        {
+            var node = JsonNode.Parse(raw);
+            if (node != null)
+            {
+                var opts = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                };
+                Console.WriteLine(node.ToJsonString(opts));
+                return;
+            }
+        }
+        catch { }
+        Console.WriteLine(Encoding.UTF8.GetString(raw));
+    }
+
+    private static List<FileTask> CollectTasks(string inputPath, string outputDir, bool readOnly)
+    {
+        if (File.Exists(inputPath))
+        {
+            string fileName = Path.GetFileName(inputPath);
+            string name = Path.GetFileNameWithoutExtension(inputPath);
+            string outputSubdir = readOnly ? string.Empty : Path.Combine(outputDir, name);
+            return [new FileTask(inputPath, fileName, outputSubdir, fileName)];
+        }
+
+        var tasks = new List<FileTask>();
+        foreach (var path in Directory.EnumerateFiles(inputPath, "*.ysm", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(inputPath, path);
+            string outputSubdir = readOnly ? string.Empty : Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path));
             tasks.Add(new FileTask(path, Path.GetFileName(path), outputSubdir, relative));
         }
         tasks.Sort((a, b) => string.Compare(a.InputPath, b.InputPath, StringComparison.Ordinal));
@@ -158,9 +234,7 @@ internal static class Program
         for (int i = 0; i < args.Length - 1; i++)
         {
             if (args[i] == shortName || args[i] == longName)
-            {
                 return args[i + 1];
-            }
         }
         return null;
     }
@@ -168,18 +242,14 @@ internal static class Program
     private static bool HasFlag(string[] args, string shortName, string longName)
     {
         foreach (var a in args)
-        {
             if (a == shortName || a == longName) return true;
-        }
         return false;
     }
 
     private static bool IsFlag(string[] args, string name)
     {
         foreach (var a in args)
-        {
             if (a == name) return true;
-        }
         return false;
     }
 
@@ -188,18 +258,20 @@ internal static class Program
         Console.WriteLine("YSMParser CLI - parses .ysm model files");
         Console.WriteLine();
         Console.WriteLine("Usage: YSMParser -i <input> -o <output> [options]");
-        Console.WriteLine("       YSMParser -i <input> -n [--info]");
+        Console.WriteLine("       YSMParser -i <input> -n             (info only)");
+        Console.WriteLine("       YSMParser -i <input> -p             (peek metadata)");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  -i, --input <dir>     Input directory (required).");
-        Console.WriteLine("  -o, --output <dir>    Output directory.");
-        Console.WriteLine("  -n, --info            Print model details without extracting.");
-        Console.WriteLine("  -v, --verbose         Verbose logging.");
-        Console.WriteLine("  -d, --debug           Export all binary products (V3 only).");
-        Console.WriteLine("  -f, --format          Pretty-print JSON output.");
-        Console.WriteLine("  -j, --threads <n>     Parallel worker count (default 1).");
-        Console.WriteLine("  --version             Print version and exit.");
-        Console.WriteLine("  -h, --help            Show this message.");
+        Console.WriteLine("  -i, --input <path>   Input file or directory (required).");
+        Console.WriteLine("  -o, --output <dir>   Output directory.");
+        Console.WriteLine("  -p, --peek           Print structured model metadata (ysm.json/info.json).");
+        Console.WriteLine("  -n, --info           Print file header info without extracting.");
+        Console.WriteLine("  -v, --verbose        Verbose logging.");
+        Console.WriteLine("  -d, --debug          Export all binary products (V3 only).");
+        Console.WriteLine("  -f, --format         Pretty-print JSON output.");
+        Console.WriteLine("  -j, --threads <n>    Parallel worker count (default 1).");
+        Console.WriteLine("  --version            Print version and exit.");
+        Console.WriteLine("  -h, --help           Show this message.");
     }
 
     private readonly record struct FileTask(string InputPath, string FileName, string OutputDir, string Relative);
