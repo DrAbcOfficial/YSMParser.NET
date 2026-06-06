@@ -1,7 +1,5 @@
 using System.Numerics;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace YSMParser.Export;
 
@@ -252,8 +250,12 @@ public static class GltfExporter
         int matIndex;
         if (texturePng is { Length: > 0 })
         {
-            var mat = new GltfMaterial { Name = "material", DoubleSided = false };
-            mat.PbrMetallicRoughness = new GltfPbrMetallicRoughness();
+            var mat = new GltfMaterial
+            {
+                Name = "material",
+                DoubleSided = false,
+                PbrMetallicRoughness = new GltfPbrMetallicRoughness()
+            };
             if (embedTextureInBuffer)
             {
                 mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = 0 };
@@ -634,11 +636,13 @@ public static class GltfExporter
 
     private static void WriteU32LE(Stream s, uint value)
     {
-        Span<byte> buf = stackalloc byte[4];
-        buf[0] = (byte)(value & 0xFF);
-        buf[1] = (byte)((value >> 8) & 0xFF);
-        buf[2] = (byte)((value >> 16) & 0xFF);
-        buf[3] = (byte)((value >> 24) & 0xFF);
+        Span<byte> buf =
+        [
+            (byte)(value & 0xFF),
+            (byte)((value >> 8) & 0xFF),
+            (byte)((value >> 16) & 0xFF),
+            (byte)((value >> 24) & 0xFF),
+        ];
         s.Write(buf);
     }
 }

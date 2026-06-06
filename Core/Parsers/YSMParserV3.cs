@@ -1,10 +1,8 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Buffers.Binary;
-using YSMParser.Core.Crypto;
-using YSMParser.Core.Utilities;
 
 namespace YSMParser.Core.Parsers;
 
@@ -107,7 +105,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             Console.Error.WriteLine($"Start Parse Files (format = {_format})");
         }
 
-        Deserialize(_decompressed, _decompressed.Length);
+        Deserialize(_decompressed);
     }
 
     private static int ExtractFormatFromHeader(string headerData)
@@ -694,13 +692,9 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         }
     }
 
-    private struct UVBox
+    private struct UVBox(float u, float v, float uSize, float vSize)
     {
-        public float U, V, USize, VSize;
-        public UVBox(float u, float v, float uSize, float vSize)
-        {
-            U = u; V = v; USize = uSize; VSize = vSize;
-        }
+        public float U = u, V = v, USize = uSize, VSize = vSize;
     }
 
     private static float CleanVal(float v) => MathF.Round(v * 10000f) / 10000f;
@@ -730,9 +724,9 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     {
         public Vector3D Col0, Col1, Col2;
 
-        public float Det() => Dot(Col0, Cross(Col1, Col2));
+        public readonly float Det() => Dot(Col0, Cross(Col1, Col2));
 
-        public Vector3D TransposeMul(Vector3D v) =>
+        public readonly Vector3D TransposeMul(Vector3D v) =>
             new(Dot(Col0, v), Dot(Col1, v), Dot(Col2, v));
     }
 
@@ -763,12 +757,12 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     private static void GetExpectedUVDirs(Vector3D localNormal, out Vector3D expU, out Vector3D expV)
     {
         var n = new Vector3D(MathF.Round(localNormal.X), MathF.Round(localNormal.Y), MathF.Round(localNormal.Z));
-        if (n.X == -1f) { expU = new Vector3D(0, 0, 1);  expV = new Vector3D(0, -1, 0); return; }
-        if (n.X == 1f)  { expU = new Vector3D(0, 0, -1); expV = new Vector3D(0, -1, 0); return; }
-        if (n.Y == 1f)  { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, 0, -1); return; }
-        if (n.Y == -1f) { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, 0, 1);  return; }
+        if (n.X == -1f) { expU = new Vector3D(0, 0, 1); expV = new Vector3D(0, -1, 0); return; }
+        if (n.X == 1f) { expU = new Vector3D(0, 0, -1); expV = new Vector3D(0, -1, 0); return; }
+        if (n.Y == 1f) { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, 0, -1); return; }
+        if (n.Y == -1f) { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, 0, 1); return; }
         if (n.Z == -1f) { expU = new Vector3D(-1, 0, 0); expV = new Vector3D(0, -1, 0); return; }
-        if (n.Z == 1f)  { expU = new Vector3D(1, 0, 0);  expV = new Vector3D(0, -1, 0); return; }
+        if (n.Z == 1f) { expU = new Vector3D(1, 0, 0); expV = new Vector3D(0, -1, 0); return; }
         expU = Vector3D.Zero;
         expV = Vector3D.Zero;
     }
@@ -895,8 +889,15 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         Vector3D bestEuler = Vector3D.Zero;
         float minEulerSum = float.PositiveInfinity;
 
-        int[][] perms = { [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0] };
-        float[][] signs = { [1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1], [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1] };
+        int[][] perms = [
+            [0, 1, 2], [0, 2, 1], [1, 0, 2], 
+            [1, 2, 0], [2, 0, 1], [2, 1, 0]
+            ];
+        float[][] signs = [
+            [1, 1, 1], [1, 1, -1], [1, -1, 1], 
+            [1, -1, -1], [-1, 1, 1], [-1, 1, -1], 
+            [-1, -1, 1], [-1, -1, -1]
+            ];
 
         foreach (var p in perms)
         {
@@ -1049,21 +1050,16 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             GetExpectedUVDirs(nLocal, out var rawExpU, out var rawExpV);
             var expU = rawExpU * sizeSigns;
             var expV = rawExpV * sizeSigns;
-
-            float uMin = float.PositiveInfinity, vMin = float.PositiveInfinity;
-            float uMax = float.NegativeInfinity, vMax = float.NegativeInfinity;
-
             var rf = info.RawF;
             float u0 = rf.V0.U * textureWidth, v0 = rf.V0.V * textureHeight;
             float u1 = rf.V1.U * textureWidth, v1 = rf.V1.V * textureHeight;
             float u2 = rf.V2.U * textureWidth, v2 = rf.V2.V * textureHeight;
             float u3 = rf.V3.U * textureWidth, v3 = rf.V3.V * textureHeight;
 
-            uMin = MathF.Min(MathF.Min(u0, u1), MathF.Min(u2, u3));
-            uMax = MathF.Max(MathF.Max(u0, u1), MathF.Max(u2, u3));
-            vMin = MathF.Min(MathF.Min(v0, v1), MathF.Min(v2, v3));
-            vMax = MathF.Max(MathF.Max(v0, v1), MathF.Max(v2, v3));
-
+            float uMin = MathF.Min(MathF.Min(u0, u1), MathF.Min(u2, u3));
+            float uMax = MathF.Max(MathF.Max(u0, u1), MathF.Max(u2, u3));
+            float vMin = MathF.Min(MathF.Min(v0, v1), MathF.Min(v2, v3));
+            float vMax = MathF.Max(MathF.Max(v0, v1), MathF.Max(v2, v3));
             float uStart = uMin, vStart = vMin;
             float uSz = uMax - uMin, vSz = vMax - vMin;
 
@@ -1470,7 +1466,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             var texObj = new JsonObject { ["uv"] = "textures/" + SanitizeWindowsFilename(name + ".png") };
             string expectedNormal = name + "_normal";
             string expectedSpecular = name + "_specular";
-            foreach (var (Name, Data) in _specialImageFiles)
+            foreach (var (Name, _) in _specialImageFiles)
             {
                 if (Name == expectedNormal) texObj["normal"] = "textures/" + SanitizeWindowsFilename(expectedNormal + ".png");
                 else if (Name == expectedSpecular) texObj["specular"] = "textures/" + SanitizeWindowsFilename(expectedSpecular + ".png");
@@ -1755,9 +1751,9 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         }
     }
 
-    private void Deserialize(byte[] data, int size)
+    private void Deserialize(byte[] data)
     {
-        var reader = new BufferReader(data, 0);
+        var reader = new BufferReader(data);
         uint version = reader.ReadDword();
         if (version != _format) throw new ParserUnSupportVersionException();
         if (_format < 4)
@@ -1785,7 +1781,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
         {
             uint modelId = (uint)reader.ReadVarint();
             modelIds.Add(modelId);
-        _ = reader.ReadVarint();
+            _ = reader.ReadVarint();
             var model = ParseModels(reader);
             string modelName = modelId switch
             {
@@ -2245,7 +2241,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
     {
         var idx = line.IndexOf(tag.AsSpan(), StringComparison.Ordinal);
         if (idx < 0) return;
-        var value = line.Slice(idx + tag.Length).Trim();
+        var value = line[(idx + tag.Length)..].Trim();
         output.WriteLine($"    {label}: {value}");
     }
 
@@ -2357,7 +2353,7 @@ public sealed class YSMParserV3(byte[] buffer) : YSMParser
             Convert(_avatarFiles),
             Convert(_backgroundFiles),
             Convert(_specialImageFiles),
-            _infoJsonFile.Length > 0 ? _infoJsonFile.ToArray() : null,
-            _ysmJsonFile.Length > 0 ? _ysmJsonFile.ToArray() : null);
+            _infoJsonFile.Length > 0 ? [.. _infoJsonFile] : null,
+            _ysmJsonFile.Length > 0 ? [.. _ysmJsonFile] : null);
     }
 }
